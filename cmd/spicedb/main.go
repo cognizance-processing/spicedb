@@ -2,8 +2,8 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"math/rand"
+	"os"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -45,7 +45,6 @@ func main() {
 	rootCmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
 		cmd.Println(err)
 		cmd.Println(cmd.UsageString())
-		fmt.Println("Somewhere in the middle")
 		return errParsing
 	})
 	cmd.RegisterRootFlags(rootCmd)
@@ -82,6 +81,6 @@ func main() {
 		if !errors.Is(err, errParsing) {
 			log.Err(err).Msg("terminated with errors")
 		}
-		//os.Exit(1)
+		os.Exit(1)
 	}
 }
