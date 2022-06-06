@@ -115,7 +115,6 @@ func NewPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	fmt.Println(url, "url")
 	config, err := generateConfig(options)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
@@ -175,8 +174,6 @@ func NewPostgresDatastore(
 			return nil, fmt.Errorf(errUnableToInstantiate, err)
 		}
 	}
-	fmt.Printf("Underlying Type: %T\n", pool)
-	fmt.Printf("Underlying Value: %v\n", pool)
 	gcCtx, cancelGc := context.WithCancel(context.Background())
 
 	quantizationPeriodNanos := config.revisionQuantization.Nanoseconds()
