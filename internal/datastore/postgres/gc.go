@@ -25,6 +25,7 @@ func (pgd *pgDatastore) runGarbageCollector() error {
 			err := pgd.collectGarbage()
 			if err != nil {
 				log.Warn().Err(err).Msg("error when attempting to perform garbage collection")
+				return err
 			} else {
 				log.Debug().Msg("garbage collection completed for postgres")
 			}
