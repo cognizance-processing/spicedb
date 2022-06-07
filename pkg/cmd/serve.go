@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -70,8 +71,8 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 	cmd.Flags().BoolVar(&config.DisableVersionResponse, "disable-version-response", false, "disables version response support in the API")
 
 	// Flags for misc services
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", true)
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", true)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", false)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", false)
 
 	// Flags for telemetry
 	cmd.Flags().StringVar(&config.TelemetryEndpoint, "telemetry-endpoint", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
@@ -80,6 +81,7 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 }
 
 func NewServeCommand(programName string, config *server.Config) *cobra.Command {
+	fmt.Println(programName, "progName")
 	return &cobra.Command{
 		Use:     "serve",
 		Short:   "serve the permissions database",
@@ -90,6 +92,7 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			fmt.Println(server)
 			signalctx := SignalContextWithGracePeriod(
 				context.Background(),
 				config.ShutdownGracePeriod,
