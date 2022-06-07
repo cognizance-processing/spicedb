@@ -92,7 +92,6 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Println(server)
 			signalctx := SignalContextWithGracePeriod(
 				context.Background(),
 				config.ShutdownGracePeriod,
