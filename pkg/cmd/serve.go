@@ -71,8 +71,8 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 	cmd.Flags().BoolVar(&config.DisableVersionResponse, "disable-version-response", false, "disables version response support in the API")
 
 	// Flags for misc services
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", false)
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", false)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", true)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", true)
 
 	// Flags for telemetry
 	cmd.Flags().StringVar(&config.TelemetryEndpoint, "telemetry-endpoint", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
@@ -94,7 +94,7 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 			}
 			signalctx := SignalContextWithGracePeriod(
 				context.Background(),
-				time.Minute*5,
+				config.ShutdownGracePeriod,
 			)
 			return server.Run(signalctx)
 		},
