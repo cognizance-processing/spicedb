@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/lib/pq"
 
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
@@ -23,12 +24,16 @@ type AlembicPostgresDriver struct {
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
-	//connectStr, err := pq.ParseURL(url)
-	/*	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
-	}*/
+	connectStr, err := pq.ParseURL(url)
+	if err != nil {
+		db, err := pgx.Connect(context.Background(), url)
+		if err != nil {
+			return nil, fmt.Errorf(errUnableToInstantiate, err)
+		}
+		return &AlembicPostgresDriver{db}, nil
+	}
 
-	db, err := pgx.Connect(context.Background(), url)
+	db, err := pgx.Connect(context.Background(), connectStr)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
