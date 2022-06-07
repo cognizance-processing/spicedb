@@ -111,7 +111,6 @@ func TestConsistency(t *testing.T) {
 							defer dispatcher.Close()
 
 							testers := []serviceTester{
-								v0ServiceTester{v0.NewACLServiceClient(conn[0])},
 								v1ServiceTester{v1.NewPermissionsServiceClient(conn[0])},
 							}
 
@@ -179,6 +178,11 @@ func runCrossVersionTests(t *testing.T,
 	fullyResolved *validationfile.PopulatedValidationFile,
 	revision decimal.Decimal,
 ) {
+	// NOTE: added to skip tests when there is only one version defined.
+	if len(testers) < 2 {
+		return
+	}
+
 	for _, nsDef := range fullyResolved.NamespaceDefinitions {
 		for _, relation := range nsDef.Relation {
 			verifyCrossVersion(t, "read", testers, func(tester serviceTester) (interface{}, error) {
@@ -387,17 +391,10 @@ type validationContext struct {
 }
 
 func validateDeveloper(t *testing.T, dev v0.DeveloperServiceServer, vctx *validationContext) {
-	// If there is a valid schema, use it. Otherwise, use the legacy definitions.
 	schema := vctx.fullyResolved.Schema
-	legacyConfigs := core.ToV0NamespaceDefinitions(vctx.fullyResolved.NamespaceDefinitions)
-	if len(schema) > 0 {
-		legacyConfigs = nil
-	}
-
 	reqContext := &v0.RequestContext{
-		LegacyNsConfigs: legacyConfigs,
-		Schema:          schema,
-		Relationships:   core.ToV0RelationTuples(vctx.fullyResolved.Tuples),
+		Schema:        schema,
+		Relationships: core.ToV0RelationTuples(vctx.fullyResolved.Tuples),
 	}
 
 	// Validate edit checks (check watches).
