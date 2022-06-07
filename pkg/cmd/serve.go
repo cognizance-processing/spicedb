@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -94,6 +95,7 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 				context.Background(),
 				config.ShutdownGracePeriod,
 			)
+			fmt.Println(signalctx, "dafug is this and where is it coming from?")
 			return server.Run(signalctx)
 		},
 		Example: server.ServeExample(programName),
