@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -14,6 +15,7 @@ import (
 // when an interrupt/SIGTERM signal is received and the provided grace period
 // subsequently finishes.
 func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration) context.Context {
+	fmt.Println("Im here and stuff")
 	newCtx, cancelfn := context.WithCancel(ctx)
 	go func() {
 		signalctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -21,6 +23,7 @@ func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration
 		log.Info().Msg("received interrupt")
 
 		if gracePeriod > 0 {
+			fmt.Println(gracePeriod, "grace & Will")
 			interruptGrace, _ := signal.NotifyContext(context.Background(), os.Interrupt)
 			graceTimer := time.NewTimer(gracePeriod)
 
