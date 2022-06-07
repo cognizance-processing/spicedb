@@ -38,6 +38,6 @@ func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration
 		log.Info().Msg("shutting down")
 		cancelfn()
 	}()
-
+	fmt.Println("ALL THE WAY", newCtx)
 	return newCtx
 }

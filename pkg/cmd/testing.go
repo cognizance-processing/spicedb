@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/spf13/cobra"
 
@@ -17,6 +18,7 @@ func RegisterTestingFlags(cmd *cobra.Command, config *testserver.Config) {
 }
 
 func NewTestingCommand(programName string, config *testserver.Config) *cobra.Command {
+	fmt.Println("do we get here hey?", config)
 	return &cobra.Command{
 		Use:     "serve-testing",
 		Short:   "test server with an in-memory datastore",
