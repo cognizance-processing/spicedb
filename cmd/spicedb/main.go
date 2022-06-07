@@ -2,13 +2,12 @@ package main
 
 import (
 	"errors"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
-	"github.com/rs/zerolog/log"
 	"math/rand"
 	"os"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
+	"github.com/rs/zerolog/log"
 	"github.com/sercand/kuberesolver/v3"
 	"github.com/spf13/cobra"
 	"google.golang.org/grpc/balancer"
@@ -17,6 +16,7 @@ import (
 	consistentbalancer "github.com/authzed/spicedb/pkg/balancer"
 	"github.com/authzed/spicedb/pkg/cmd"
 	cmdutil "github.com/authzed/spicedb/pkg/cmd/server"
+	"github.com/authzed/spicedb/pkg/cmd/testserver"
 )
 
 const (
