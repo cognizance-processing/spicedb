@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"math/rand"
 	"os"
 	"time"
@@ -65,6 +66,7 @@ func main() {
 
 	// Add server commands
 	var serverConfig cmdutil.Config
+	fmt.Println("oui oui")
 	serveCmd := cmd.NewServeCommand(rootCmd.Use, &serverConfig)
 	cmd.RegisterServeFlags(serveCmd, &serverConfig)
 	rootCmd.AddCommand(serveCmd)

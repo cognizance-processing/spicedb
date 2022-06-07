@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -80,6 +81,7 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 }
 
 func NewServeCommand(programName string, config *server.Config) *cobra.Command {
+	fmt.Println("start of serving", programName, config)
 	return &cobra.Command{
 		Use:     "serve",
 		Short:   "serve the permissions database",
