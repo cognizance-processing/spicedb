@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,6 +18,7 @@ func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration
 	newCtx, cancelfn := context.WithCancel(ctx)
 	go func() {
 		signalctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		fmt.Println(signalctx, "here she is inside a func")
 		<-signalctx.Done()
 		log.Info().Msg("received interrupt")
 
