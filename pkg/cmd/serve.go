@@ -74,7 +74,7 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", false)
 
 	// Flags for telemetry
-	cmd.Flags().StringVar(&config.TelemetryEndpoint, "", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
+	cmd.Flags().StringVar(&config.TelemetryEndpoint, "telemetry-endpoint", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
 	cmd.Flags().StringVar(&config.TelemetryCAOverridePath, "telemetry-ca-override-path", "", "TODO")
 	cmd.Flags().DurationVar(&config.TelemetryInterval, "telemetry-interval", telemetry.DefaultInterval, "approximate period between telemetry reports, minimum 1 minute")
 }
