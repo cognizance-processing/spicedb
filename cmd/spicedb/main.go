@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/authzed/spicedb/pkg/cmd/testserver"
 	"math/rand"
 	"os"
 	"time"
@@ -71,10 +72,10 @@ func main() {
 	devtoolsCmd := cmd.NewDevtoolsCommand(rootCmd.Use)
 	cmd.RegisterDevtoolsFlags(devtoolsCmd)
 	rootCmd.AddCommand(devtoolsCmd)
-	//var testServerConfig testserver.Config
-	//testingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)
-	//cmd.RegisterTestingFlags(testingCmd, &testServerConfig)
-	//rootCmd.AddCommand(testingCmd)
+	var testServerConfig testserver.Config
+	testingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)
+	cmd.RegisterTestingFlags(testingCmd, &testServerConfig)
+	rootCmd.AddCommand(testingCmd)
 	if err := rootCmd.Execute(); err != nil {
 		if !errors.Is(err, errParsing) {
 			log.Err(err).Msg("terminated with errors")
