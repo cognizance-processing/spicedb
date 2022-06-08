@@ -88,16 +88,16 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 		Long:    "A database that stores, computes, and validates application permissions",
 		PreRunE: server.DefaultPreRunE(programName),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			server, err := config.Complete()
-			if err != nil {
-				return err
-			}
 			signalctx := SignalContextWithGracePeriod(
 				context.Background(),
 				config.ShutdownGracePeriod,
 			)
+			server, err := config.Complete()
+			if err != nil {
+				return err
+			}
 			return server.Run(signalctx)
 		},
-		Example: server.ServeExample(programName),
+		//Example: server.ServeExample(programName),
 	}
 }

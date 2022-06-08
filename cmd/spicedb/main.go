@@ -72,6 +72,7 @@ func main() {
 	devtoolsCmd := cmd.NewDevtoolsCommand(rootCmd.Use)
 	cmd.RegisterDevtoolsFlags(devtoolsCmd)
 	rootCmd.AddCommand(devtoolsCmd)
+
 	var testServerConfig testserver.Config
 	testingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)
 	cmd.RegisterTestingFlags(testingCmd, &testServerConfig)
