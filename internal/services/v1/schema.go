@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
@@ -44,6 +45,7 @@ type schemaServer struct {
 }
 
 func (ss *schemaServer) ReadSchema(ctx context.Context, in *v1.ReadSchemaRequest) (*v1.ReadSchemaResponse, error) {
+	fmt.Println("This is where schema reading is happening")
 	readRevision, _ := consistency.MustRevisionFromContext(ctx)
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(readRevision)
 
@@ -72,6 +74,7 @@ func (ss *schemaServer) ReadSchema(ctx context.Context, in *v1.ReadSchemaRequest
 }
 
 func (ss *schemaServer) WriteSchema(ctx context.Context, in *v1.WriteSchemaRequest) (*v1.WriteSchemaResponse, error) {
+	fmt.Println("sure we dont even arrive here")
 	log.Ctx(ctx).Trace().Str("schema", in.GetSchema()).Msg("requested Schema to be written")
 
 	ds := datastoremw.MustFromContext(ctx)
