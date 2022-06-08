@@ -1,0 +1,33 @@
+{
+    "configurations": [
+        {
+            "name": "Cloud Run: Run/Debug Locally",
+            "type": "cloudcode.cloudrun",
+            "request": "launch",
+            "build": {
+                "docker": {
+                    "path": "Dockerfile"
+                }
+            },
+            "image": "spicedb",
+            "service": {
+                "name": "spicedb",
+                "containerPort": 8080,
+                "serviceAccountNam": "p597103356749-25v6xj@gcp-sa-cloud-sql.iam.gserviceaccount.com",
+                "cloudSqlInstance": [
+                    "cog-analytics-backend:us-central1:authz-store"
+                ],
+                "resources": {
+                    "limits": {
+                        "memory": "1024Mi"
+                    }
+                }
+            },
+            "target": {
+                "minikube": {}
+            },
+            "watch": true,
+            "externalPortForward": 3000
+        }
+    ]
+}
