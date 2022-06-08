@@ -392,7 +392,12 @@ func (pgd *pgDatastore) IsReady(ctx context.Context) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer currentRevision.Close()
+	defer func(currentRevision *migrations.AlembicPostgresDriver) {
+		err := currentRevision.Close()
+		if err != nil {
+			log.Debug().Err(err).Msg("error closing current revision")
+		}
+	}(currentRevision)
 
 	version, err := currentRevision.Version(ctx)
 	if err != nil {
