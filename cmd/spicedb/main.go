@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/authzed/spicedb/pkg/cmd/testserver"
 	"math/rand"
 	"os"
 	"time"
@@ -16,7 +17,6 @@ import (
 	consistentbalancer "github.com/authzed/spicedb/pkg/balancer"
 	"github.com/authzed/spicedb/pkg/cmd"
 	cmdutil "github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
 )
 
 const (
