@@ -30,7 +30,7 @@ func Context() context.Context {
 			select {
 			case <-signalCtx.Done():
 			case <-c:
-				fmt.Println("shutting down")
+				fmt.Println("shutting down? maybe")
 				os.Exit(1)
 			}
 		}()
