@@ -75,8 +75,8 @@ spec:
       containers:
         - name: "spicedb"
           image: "quay.io/authzed/spicedb:latest"
-          imagePullPolicy: "Always"
-          command: ["spicedb", "serve"]
+          imagePullPolicy: "IfNotPresent"
+          command: ["spicedb", "serve", "--grpc-preshared-key", "realkeyhere"]
           env:
             # These flags are used to enable TLS for the gRPC and HTTP ports:
             #
