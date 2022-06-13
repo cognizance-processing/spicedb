@@ -8,4 +8,6 @@ FROM alpine:3.15
 RUN [ ! -e /etc/nsswitch.conf ] && echo 'hosts: files dns' > /etc/nsswitch.conf
 COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.6 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
 COPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb
+EXPOSE 8080
+EXPOSE 50051
 ENTRYPOINT ["spicedb","serve","--grpc-preshared-key", "realkeyhere"]

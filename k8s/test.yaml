@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: port-forward
+spec:
+  type: ClusterIP
+  selector:
+    app: spicedb
+  ports:
+  - protocol: TCP
+    port: 8080
+    targetPort: 8080
