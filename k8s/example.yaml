@@ -74,11 +74,18 @@ spec:
       restartPolicy: "Always"
       terminationGracePeriodSeconds: 30
       serviceAccountName: "spicedb"
+      volumes:
+      - name: google-cloud-key
+        secret:
+          secretName: spicedb-service-account-key
       containers:
         - name: "spicedb"
           image: "quay.io/cog/spicedb"
           imagePullPolicy: "IfNotPresent"
           command: ["spicedb", "serve", "--grpc-preshared-key", "realkeyhere"]
+          volumeMounts:
+        - name: google-cloud-key
+          mountPath: /var/secrets/google
           env:
             # These flags are used to enable TLS for the gRPC and HTTP ports:
             #
@@ -107,17 +114,19 @@ spec:
             # with cluster dispatching. For more info see:
             # https://docs.authzed.com/spicedb/selecting-a-datastore
             #
-            # - name: "SPICEDB_DATASTORE_ENGINE"
-            #   value: "cockroachdb"
-            # - name: "SPICEDB_DATASTORE_CONN_URI"
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: "spicedb"
-            #       key: "SPICEDB_DATASTORE_CONN_URI"
-            # - name: "SPICEDB_DISPATCH_CLUSTER_ENABLED"
-            #   value: "true"
-            # - name: "SPICEDB_DISPATCH_UPSTREAM_ADDR"
-            #   value: "kubernetes:///spicedb:dispatch"
+            - name: "SPICEDB_DATASTORE_ENGINE"
+              value: "postgres"
+            - name: "SPICEDB_DATASTORE_CONN_URI"
+              value: postgres://new:Happy456@/cloudsql/cog-analytics-backend:us-central1:authz-store/postgres?sslmode=disable
+              # valueFrom:
+              #   secretKeyRef:
+              #     name: "postgresuri"
+              #     # key: "SPICEDB_DATASTORE_CONN_URI" 
+              #     key: "SECRET_GRPC_KEY" 
+            - name: "SPICEDB_DISPATCH_CLUSTER_ENABLED"
+              value: "true"
+            - name: "SPICEDB_DISPATCH_UPSTREAM_ADDR"
+              value: "kubernetes:///spicedb:dispatch"
             - name: "SPICEDB_LOG_LEVEL"
               value: "debug"
             - name: "SPICEDB_HTTP_ENABLED"
@@ -129,6 +138,8 @@ spec:
                 secretKeyRef:
                   name: "spicedb"
                   key: "SPICEDB_GRPC_PRESHARED_KEY"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/google/key.json
           ports:
             - name: "grpc"
               containerPort: 50051
