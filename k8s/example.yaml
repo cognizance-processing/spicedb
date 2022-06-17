@@ -73,7 +73,7 @@ spec:
       dnsPolicy: "ClusterFirst"
       restartPolicy: "Always"
       terminationGracePeriodSeconds: 30
-      serviceAccountName: "spicedb"
+      serviceAccountName: "cog-spicedb-ksa"
       volumes:
       - name: google-cloud-key
         secret:
@@ -82,18 +82,18 @@ spec:
         - name: "spicedb"
           image: "quay.io/cog/spicedb"
           imagePullPolicy: "IfNotPresent"
-          command: ["spicedb", "serve", "--grpc-preshared-key", "realkeyhere"]
           volumeMounts:
-        - name: google-cloud-key
-          mountPath: /var/secrets/google
+          - name: google-cloud-key
+            mountPath: /var/secrets/google
+          
           env:
             # These flags are used to enable TLS for the gRPC and HTTP ports:
             #
-            # - name: "SPICEDB_GRPC_TLS_KEY_PATH"
-            #   valueFrom:
-            #     secretKeyRef:
-            #       name: "spicedb"
-            #       key: "SPICEDB_GRPC_KEY_PATH"
+            - name: "SPICEDB_GRPC_TLS_KEY_PATH"
+              valueFrom:
+                secretKeyRef:
+                  name: "grpckey"
+                  key: "SECRET_GRPC_KEY"
             # - name: "SPICEDB_GRPC_TLS_CERT_PATH"
             #   valueFrom:
             #     secretKeyRef:
@@ -115,14 +115,15 @@ spec:
             # https://docs.authzed.com/spicedb/selecting-a-datastore
             #
             - name: "SPICEDB_DATASTORE_ENGINE"
-              value: "postgres"
+              valueFrom:
+                 secretKeyRef:
+                   name: "datastoreuri"
+                   key: "SPICEDB_DATASTORE_ENGINE"
             - name: "SPICEDB_DATASTORE_CONN_URI"
-              value: postgres://new:Happy456@/cloudsql/cog-analytics-backend:us-central1:authz-store/postgres?sslmode=disable
-              # valueFrom:
-              #   secretKeyRef:
-              #     name: "postgresuri"
-              #     # key: "SPICEDB_DATASTORE_CONN_URI" 
-              #     key: "SECRET_GRPC_KEY" 
+              valueFrom:
+                 secretKeyRef:
+                   name: "datastoreuri"
+                   key: "SPICEDB_DATASTORE_CONN_URI" 
             - name: "SPICEDB_DISPATCH_CLUSTER_ENABLED"
               value: "true"
             - name: "SPICEDB_DISPATCH_UPSTREAM_ADDR"
@@ -140,6 +141,7 @@ spec:
                   key: "SPICEDB_GRPC_PRESHARED_KEY"
             - name: GOOGLE_APPLICATION_CREDENTIALS
               value: /var/secrets/google/key.json
+          command: ["spicedb", "serve", "--grpc-preshared-key", $(SPICEDB_GRPC_PRESHARED_KEY)]
           ports:
             - name: "grpc"
               containerPort: 50051
@@ -164,6 +166,19 @@ spec:
             periodSeconds: 10
             successThreshold: 1
             timeoutSeconds: 20
+        - name: cloud-sql-proxy
+          image: gcr.io/cloudsql-docker/gce-proxy:1.28.0
+          command:
+            - "/cloud_sql_proxy"
+            - "-log_debug_stdout"
+            - "-instances=cog-analytics-backend:us-central1:authz-store=tcp:5432"
+            - "-enable_iam_login"
+          securityContext:
+            runAsNonRoot: true
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu:    "1"
 ---
 apiVersion: "v1"
 kind: "ServiceAccount"
@@ -202,3 +217,11 @@ roleRef:
   apiGroup: "rbac.authorization.k8s.io"
   kind: "Role"
   name: "watch-service"
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  annotations:
+    iam.gke.io/gcp-service-account: cog-spicedb-457@cog-analytics-backend.iam.gserviceaccount.com
+  name: cog-spicdedb-ksa
+  namespace: default
