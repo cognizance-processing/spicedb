@@ -1,0 +1,143 @@
+apiVersion: "apps/v1"
+kind: "Deployment"
+metadata:
+  name: "spicedb"
+  labels:
+    app.kubernetes.io/name: "spicedb"
+    app.kubernetes.io/version: "example"
+    app: "spicedb"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: "spicedb"
+      app.kubernetes.io/version: "example"
+  strategy:
+    type: "RollingUpdate"
+    rollingUpdate:
+      maxSurge: "25%"
+      maxUnavailable: "25%"
+  progressDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: "spicedb"
+        app.kubernetes.io/version: "example"
+        app: "spicedb"
+    spec:
+      dnsPolicy: "ClusterFirst"
+      restartPolicy: "Always"
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: "spicedb"
+      volumes:
+      - name: google-cloud-key
+        secret:
+          secretName: spicedb-service-account-key
+      containers:
+        - name: "spicedb"
+          image: "gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb"
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+          - name: google-cloud-key
+            mountPath: /var/secrets/google
+          command: ["spicedb", "serve"] 
+          env:
+            # These flags are used to enable TLS for the gRPC and HTTP ports:
+            #
+            #- name: "SPICEDB_GRPC_TLS_KEY_PATH"
+            #  value: spicedb-meta-key
+              #valueFrom:
+              #  secretKeyRef:
+              #    name: "spicedb-tls-key"
+              #    key: "20220623-935-e58.private.pem"
+            #- name: "SPICEDB_GRPC_TLS_CERT_PATH"
+            #  value: spicedb-meta-cert
+              #valueFrom:
+              #  secretKeyRef:
+              #    name: "spicedb-meta-cert"
+              #    key: "spicedb-tls-cert"
+            # - name: "SPICEDB_HTTP_TLS_KEY_PATH"
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: "spicedb"
+            #       key: "SPICEDB_HTTP_KEY_PATH"
+            # - name: "SPICEDB_GRPC_HTTP_CERT_PATH"
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: "spicedb"
+            #       key: "SPICEDB_HTTP_CERT_PATH"
+            #
+            # These flags are used to enable a persistent datastore along
+            # with cluster dispatching. For more info see:
+            # https://docs.authzed.com/spicedb/selecting-a-datastore
+            
+            - name: "SPICEDB_DATASTORE_ENGINE"
+              valueFrom:
+                secretKeyRef:
+                  name: "datastoreuri"
+                  key: "SPICEDB_DATASTORE_ENGINE"
+            - name: "SPICEDB_DATASTORE_CONN_URI"
+              valueFrom:
+                  secretKeyRef:
+                    name: "datastoreuri"
+                    key: "SPICEDB_DATASTORE_CONN_URI" 
+            - name: "SPICEDB_DISPATCH_CLUSTER_ENABLED"
+              value: "true"
+            - name: "SPICEDB_DISPATCH_UPSTREAM_ADDR"
+              value: "kubernetes:///spicedb:dispatch"
+            - name: "SPICEDB_LOG_LEVEL"
+              value: "debug"
+            - name: "SPICEDB_HTTP_ENABLED"
+              value: "true"
+            - name: "SPICEDB_GRPC_SHUTDOWN_GRACE_PERIOD"
+              value: "9s"
+            - name: "SPICEDB_GRPC_PRESHARED_KEY"
+              valueFrom:
+                secretKeyRef:
+                  name: "spicedb"
+                  key: "SPICEDB_GRPC_PRESHARED_KEY"
+            - name: GOOGLE_APPLICATION_CREDENTIALS
+              value: /var/secrets/google/key.json
+          ports:
+            - name: "grpc"
+              containerPort: 50051
+              # hostPort: 50051
+              protocol: "TCP"
+            - name: "http"
+              containerPort: 8080
+              # hostPort: 8080
+              protocol: "TCP"
+            - name: "dispatch"
+              containerPort: 50053
+              # hostPort: 50053
+              protocol: "TCP"
+            - name: "prometheus"
+              containerPort: 9090
+              # hostPort: 9090
+              protocol: "TCP"
+          readinessProbe:
+            exec:
+              command: ["grpc_health_probe", "-v", "-addr=localhost:50051"]
+            failureThreshold: 5
+            periodSeconds: 10
+            successThreshold: 1
+            timeoutSeconds: 20
+          resources:
+              requests:
+                memory: "2Gi"
+                cpu:    "1"
+        - name: cloud-sql-proxy
+          image: gcr.io/cloudsql-docker/gce-proxy:1.31.0
+          command:
+            - "/cloud_sql_proxy"
+            - "-log_debug_stdout"
+            - "-instances=cog-analytics-backend:us-central1:authz-store=tcp:5432"
+            - "-enable_iam_login"
+            - "-term_timeout=10s"
+          securityContext:
+            runAsNonRoot: true
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu:    "1"
+

@@ -1,0 +1,41 @@
+steps:
+#step 1
+- name: 'gcr.io/cloud-builders/docker' 
+  entrypoint: 'bash'
+  args: [
+   '-c', 
+   'docker pull ggcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest || exit 0'
+  ]
+#step 2
+- name: gcr.io/cloud-builders/docker
+  args: [
+   'build', 
+   '-t', 
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA',
+   '-t', 
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest',
+   '.'
+  ]
+#step 3
+- name: 'gcr.io/cloud-builders/kubectl'
+  args: ['apply', '-f', 'k8s/']
+  env:
+  - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-spice-autopilot'
+#step 4
+- name: 'gcr.io/cloud-builders/kubectl'
+  args: [
+   'set', 
+   'image', 
+   'deployment', 
+   '<app-name>', 
+   '<app-name>=gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA'
+  ]
+  env:
+  - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-spice-autopilot'
+# push images to Google Container Registry with tags
+images: [
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA',
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest'
+  ]

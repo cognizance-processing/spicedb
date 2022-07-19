@@ -1,0 +1,12 @@
+apiVersion: "rbac.authorization.k8s.io/v1"
+kind: "Role"
+metadata:
+  name: "watch-service"
+  labels:
+    app.kubernetes.io/name: "spicedb"
+    app.kubernetes.io/version: "example"
+    app: "spicedb"
+rules:
+  - apiGroups: [""]
+    resources: ["endpoints"]
+    verbs: ["get", "watch"]
