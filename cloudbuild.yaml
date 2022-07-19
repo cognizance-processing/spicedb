@@ -4,7 +4,7 @@ steps:
   entrypoint: 'bash'
   args: [
    '-c', 
-   'docker pull ggcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest || exit 0'
+   'docker pull gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest || exit 0'
   ]
 #step 2
 - name: gcr.io/cloud-builders/docker
