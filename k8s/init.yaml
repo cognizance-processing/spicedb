@@ -13,7 +13,7 @@ data:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: spicedb
+  name: mypod
   namespace: default
 spec:
   serviceAccountName: secret-ksa
