@@ -1,6 +1,6 @@
 FROM golang:1.18-alpine3.15 AS spicedb-builder
 WORKDIR /go/src/app
-RUN apk update && apk add --no-cache git
+RUN apk update && apk add git
 COPY . .
 RUN go build -v ./cmd/spicedb/
 
