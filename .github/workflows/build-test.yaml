@@ -1,6 +1,6 @@
 ---
 name: "Build & Test"
-on:  # yamllint disable-line rule:truthy
+on: # yamllint disable-line rule:truthy
   push:
     branches:
       - "main"
@@ -72,7 +72,7 @@ jobs:
       - uses: "authzed/actions/go-test@main"
         with:
           tags: "ci"
-
+          timeout: "30m"
   e2e:
     name: "E2E"
     runs-on: "ubuntu-latest"
@@ -130,7 +130,7 @@ jobs:
         with:
           go-version: "~1.18"
       - name: "Install Go Tools"
-        run: "./install-tools.sh"
+        run: "./hack/install-tools.sh"
       - uses: "authzed/actions/buf-generate@main"
       - uses: "bufbuild/buf-breaking-action@v0.4.0"
         if: "github.event_name == 'pull_request'"

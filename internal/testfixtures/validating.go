@@ -14,25 +14,17 @@ import (
 )
 
 type validatingDatastore struct {
-	delegate datastore.Datastore
+	datastore.Datastore
 }
 
 // NewValidatingDatastore creates a proxy which runs validation on all call parameters before
 // passing the call onward.
 func NewValidatingDatastore(delegate datastore.Datastore) datastore.Datastore {
-	return validatingDatastore{delegate: delegate}
-}
-
-func (vd validatingDatastore) Close() error {
-	return vd.delegate.Close()
-}
-
-func (vd validatingDatastore) IsReady(ctx context.Context) (bool, error) {
-	return vd.delegate.IsReady(ctx)
+	return validatingDatastore{Datastore: delegate}
 }
 
 func (vd validatingDatastore) SnapshotReader(revision datastore.Revision) datastore.Reader {
-	return validatingSnapshotReader{vd.delegate.SnapshotReader(revision)}
+	return validatingSnapshotReader{vd.Datastore.SnapshotReader(revision)}
 }
 
 func (vd validatingDatastore) ReadWriteTx(
@@ -43,30 +35,10 @@ func (vd validatingDatastore) ReadWriteTx(
 		return datastore.NoRevision, fmt.Errorf("nil delegate function")
 	}
 
-	return vd.delegate.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
+	return vd.Datastore.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
 		txDelegate := validatingReadWriteTransaction{validatingSnapshotReader{rwt}, rwt}
 		return f(ctx, txDelegate)
 	})
-}
-
-func (vd validatingDatastore) OptimizedRevision(ctx context.Context) (datastore.Revision, error) {
-	return vd.delegate.OptimizedRevision(ctx)
-}
-
-func (vd validatingDatastore) HeadRevision(ctx context.Context) (datastore.Revision, error) {
-	return vd.delegate.HeadRevision(ctx)
-}
-
-func (vd validatingDatastore) CheckRevision(ctx context.Context, revision datastore.Revision) error {
-	return vd.delegate.CheckRevision(ctx, revision)
-}
-
-func (vd validatingDatastore) Watch(ctx context.Context, afterRevision datastore.Revision) (<-chan *datastore.RevisionChanges, <-chan error) {
-	return vd.delegate.Watch(ctx, afterRevision)
-}
-
-func (vd validatingDatastore) Statistics(ctx context.Context) (datastore.Stats, error) {
-	return vd.delegate.Statistics(ctx)
 }
 
 type validatingSnapshotReader struct {
@@ -123,13 +95,9 @@ func (vsr validatingSnapshotReader) ReadNamespace(
 }
 
 func (vsr validatingSnapshotReader) ReverseQueryRelationships(ctx context.Context,
-	subjectFilter *v1.SubjectFilter,
+	subjectsFilter datastore.SubjectsFilter,
 	opts ...options.ReverseQueryOptionsOption,
 ) (datastore.RelationshipIterator, error) {
-	if err := subjectFilter.Validate(); err != nil {
-		return nil, err
-	}
-
 	queryOpts := options.NewReverseQueryOptionsWithOptions(opts...)
 	if queryOpts.ResRelation != nil {
 		if queryOpts.ResRelation.Namespace == "" {
@@ -140,7 +108,7 @@ func (vsr validatingSnapshotReader) ReverseQueryRelationships(ctx context.Contex
 		}
 	}
 
-	return vsr.delegate.ReverseQueryRelationships(ctx, subjectFilter, opts...)
+	return vsr.delegate.ReverseQueryRelationships(ctx, subjectsFilter, opts...)
 }
 
 type validatingReadWriteTransaction struct {

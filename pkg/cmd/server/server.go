@@ -64,6 +64,7 @@ type Config struct {
 	// Dispatch options
 	DispatchServer               util.GRPCServerConfig
 	DispatchMaxDepth             uint32
+	DispatchConcurrencyLimit     uint16
 	DispatchUpstreamAddr         string
 	DispatchUpstreamCAPath       string
 	DispatchClientMetricsPrefix  string
@@ -162,6 +163,7 @@ func (c *Config) Complete() (RunnableServer, error) {
 			),
 			combineddispatch.PrometheusSubsystem(c.DispatchClientMetricsPrefix),
 			combineddispatch.CacheConfig(cc),
+			combineddispatch.ConcurrencyLimit(c.DispatchConcurrencyLimit),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create dispatcher: %w", err)
@@ -205,6 +207,14 @@ func (c *Config) Complete() (RunnableServer, error) {
 		return nil, fmt.Errorf("failed to create dispatch gRPC server: %w", err)
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	datastoreFeatures, err := ds.Features(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error determining datastore features: %w", err)
+	}
+
 	prefixRequiredOption := v1alpha1svc.PrefixRequired
 	if !c.SchemaPrefixesRequired {
 		prefixRequiredOption = v1alpha1svc.PrefixNotRequired
@@ -213,6 +223,12 @@ func (c *Config) Complete() (RunnableServer, error) {
 	v1SchemaServiceOption := services.V1SchemaServiceEnabled
 	if c.DisableV1SchemaAPI {
 		v1SchemaServiceOption = services.V1SchemaServiceDisabled
+	}
+
+	watchServiceOption := services.WatchServiceEnabled
+	if !datastoreFeatures.Watch.Enabled {
+		log.Warn().Str("reason", datastoreFeatures.Watch.Reason).Msg("watch api disabled; underlying datastore does not support it")
+		watchServiceOption = services.WatchServiceDisabled
 	}
 
 	if len(c.UnaryMiddleware) == 0 && len(c.StreamingMiddleware) == 0 {
@@ -229,6 +245,7 @@ func (c *Config) Complete() (RunnableServer, error) {
 				c.DispatchMaxDepth,
 				prefixRequiredOption,
 				v1SchemaServiceOption,
+				watchServiceOption,
 			)
 		},
 	)
@@ -291,6 +308,8 @@ func (c *Config) Complete() (RunnableServer, error) {
 	reporter := telemetry.DisabledReporter
 	if c.SilentlyDisableTelemetry {
 		reporter = telemetry.SilentlyDisabledReporter
+	} else if c.TelemetryEndpoint != "" && c.DatastoreConfig.DisableStats {
+		reporter = telemetry.DisabledReporter
 	} else if c.TelemetryEndpoint != "" && registry != nil {
 		var err error
 		reporter, err = telemetry.RemoteReporter(

@@ -42,6 +42,49 @@ type RevisionChanges struct {
 	Changes  []*core.RelationTupleUpdate
 }
 
+// SubjectsFilter is a filter for subjects.
+type SubjectsFilter struct {
+	// SubjectType is the namespace/type for the subjects to be found.
+	SubjectType string
+
+	// SubjectIds are the IDs of the subjects to find. If empty, any subjects ID will be allowed.
+	SubjectIds []string
+
+	// RelationFilter is the filter to use for the relation(s) of the subjects. If neither field
+	// is set, any relation is allowed.
+	RelationFilter SubjectRelationFilter
+}
+
+// SubjectRelationFilter is the filter to use for relation(s) of subjects being queried.
+type SubjectRelationFilter struct {
+	// NonEllipsisRelation is the relation of the subject type to find. If empty,
+	// IncludeEllipsisRelation must be true.
+	NonEllipsisRelation string
+
+	// IncludeEllipsisRelation, if true, indicates that the ellipsis relation
+	// should be included as an option.
+	IncludeEllipsisRelation bool
+}
+
+// WithEllipsisRelation indicates that the subject filter should include the ellipsis relation
+// as an option for the subjects' relation.
+func (sf SubjectRelationFilter) WithEllipsisRelation() SubjectRelationFilter {
+	sf.IncludeEllipsisRelation = true
+	return sf
+}
+
+// WithNonEllipsisRelation indicates that the specified non-ellipsis relation should be included as an
+// option for the subjects' relation.
+func (sf SubjectRelationFilter) WithNonEllipsisRelation(relation string) SubjectRelationFilter {
+	sf.NonEllipsisRelation = relation
+	return sf
+}
+
+// IsEmpty returns true if the subject relation filter is empty.
+func (sf SubjectRelationFilter) IsEmpty() bool {
+	return !sf.IncludeEllipsisRelation && sf.NonEllipsisRelation == ""
+}
+
 type Reader interface {
 	// QueryRelationships reads relationships, starting from the resource side.
 	QueryRelationships(
@@ -53,7 +96,7 @@ type Reader interface {
 	// ReverseQueryRelationships reads relationships, starting from the subject.
 	ReverseQueryRelationships(
 		ctx context.Context,
-		subjectFilter *v1.SubjectFilter,
+		subjectFilter SubjectsFilter,
 		options ...options.ReverseQueryOptionsOption,
 	) (RelationshipIterator, error)
 
@@ -116,11 +159,28 @@ type Datastore interface {
 	// the necessary tables.
 	IsReady(ctx context.Context) (bool, error)
 
+	// Features returns an object representing what features this
+	// datastore can support.
+	Features(ctx context.Context) (*Features, error)
+
 	// Statistics returns relevant values about the data contained in this cluster.
 	Statistics(ctx context.Context) (Stats, error)
 
 	// Close closes the data store.
 	Close() error
+}
+
+// Feature represents a capability that a datastore can support, plus an
+// optional message explaining the feature is available (or not).
+type Feature struct {
+	Enabled bool
+	Reason  string
+}
+
+// Features holds values that represent what features a database can support.
+type Features struct {
+	// Watch is enabled if the underlying datastore can support the Watch api.
+	Watch Feature
 }
 
 // ObjectTypeStat represents statistics for a single object type (namespace).

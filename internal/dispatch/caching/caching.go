@@ -23,7 +23,7 @@ const (
 	prometheusNamespace = "spicedb"
 )
 
-// Dispatcher is a dispatcher with built-in caching.
+// Dispatcher is a dispatcher with cacheInst-in caching.
 type Dispatcher struct {
 	d          dispatch.Dispatcher
 	c          cache.Cache
@@ -78,9 +78,15 @@ func NewCachingDispatcher(
 		log.Info().Int64("numCounters", cacheConfig.NumCounters).Str("maxCost", humanize.Bytes(uint64(cacheConfig.MaxCost))).Msg("configured caching dispatcher")
 	}
 
-	cache, err := cache.NewCache(cacheConfig)
-	if err != nil {
-		return nil, fmt.Errorf(errCachingInitialization, err)
+	var cacheInst cache.Cache
+	if cacheConfig.Disabled {
+		cacheInst = cache.NoopCache()
+	} else {
+		c, err := cache.NewCache(cacheConfig)
+		if err != nil {
+			return nil, fmt.Errorf(errCachingInitialization, err)
+		}
+		cacheInst = c
 	}
 
 	checkTotalCounter := prometheus.NewCounter(prometheus.CounterOpts{
@@ -121,14 +127,14 @@ func NewCachingDispatcher(
 		Subsystem: prometheusSubsystem,
 		Name:      "cache_hits_total",
 	}, func() float64 {
-		return float64(cache.GetMetrics().Hits())
+		return float64(cacheInst.GetMetrics().Hits())
 	})
 	cacheMissesTotal := prometheus.NewCounterFunc(prometheus.CounterOpts{
 		Namespace: prometheusNamespace,
 		Subsystem: prometheusSubsystem,
 		Name:      "cache_misses_total",
 	}, func() float64 {
-		return float64(cache.GetMetrics().Misses())
+		return float64(cacheInst.GetMetrics().Misses())
 	})
 
 	costAddedBytes := prometheus.NewCounterFunc(prometheus.CounterOpts{
@@ -136,7 +142,7 @@ func NewCachingDispatcher(
 		Subsystem: prometheusSubsystem,
 		Name:      "cost_added_bytes",
 	}, func() float64 {
-		return float64(cache.GetMetrics().CostAdded())
+		return float64(cacheInst.GetMetrics().CostAdded())
 	})
 
 	costEvictedBytes := prometheus.NewCounterFunc(prometheus.CounterOpts{
@@ -144,11 +150,11 @@ func NewCachingDispatcher(
 		Subsystem: prometheusSubsystem,
 		Name:      "cost_evicted_bytes",
 	}, func() float64 {
-		return float64(cache.GetMetrics().CostEvicted())
+		return float64(cacheInst.GetMetrics().CostEvicted())
 	})
 
 	if prometheusSubsystem != "" {
-		err = prometheus.Register(checkTotalCounter)
+		err := prometheus.Register(checkTotalCounter)
 		if err != nil {
 			return nil, fmt.Errorf(errCachingInitialization, err)
 		}
@@ -198,7 +204,7 @@ func NewCachingDispatcher(
 
 	return &Dispatcher{
 		d:                                  fakeDelegate{},
-		c:                                  cache,
+		c:                                  cacheInst,
 		keyHandler:                         keyHandler,
 		checkTotalCounter:                  checkTotalCounter,
 		checkFromCacheCounter:              checkFromCacheCounter,
@@ -227,14 +233,27 @@ func (cd *Dispatcher) DispatchCheck(ctx context.Context, req *v1.DispatchCheckRe
 		return &v1.DispatchCheckResponse{Metadata: &v1.ResponseMeta{}}, err
 	}
 
+	// Disable caching when debugging is enabled.
 	if cachedResultRaw, found := cd.c.Get(requestKey); found {
 		cachedResult := cachedResultRaw.(checkResultEntry)
 		if req.Metadata.DepthRemaining >= cachedResult.response.Metadata.DepthRequired {
 			cd.checkFromCacheCounter.Inc()
-			return cachedResult.response, nil
+			if req.Debug != v1.DispatchCheckRequest_ENABLE_DEBUGGING {
+				return cachedResult.response, nil
+			}
+
+			// If debugging is requested, clone and add the req and the response to the trace.
+			clone := proto.Clone(cachedResult.response).(*v1.DispatchCheckResponse)
+			clone.Metadata.DebugInfo = &v1.DebugInformation{
+				Check: &v1.CheckDebugTrace{
+					Request:        req,
+					HasPermission:  clone.Membership == v1.DispatchCheckResponse_MEMBER,
+					IsCachedResult: true,
+				},
+			}
+			return clone, nil
 		}
 	}
-
 	computed, err := cd.d.DispatchCheck(ctx, req)
 
 	// We only want to cache the result if there was no error
@@ -242,6 +261,7 @@ func (cd *Dispatcher) DispatchCheck(ctx context.Context, req *v1.DispatchCheckRe
 		adjustedComputed := proto.Clone(computed).(*v1.DispatchCheckResponse)
 		adjustedComputed.Metadata.CachedDispatchCount = adjustedComputed.Metadata.DispatchCount
 		adjustedComputed.Metadata.DispatchCount = 0
+		adjustedComputed.Metadata.DebugInfo = nil
 
 		toCache := checkResultEntry{adjustedComputed}
 		cd.c.Set(requestKey, toCache, checkResultEntryCost)
@@ -274,15 +294,14 @@ func (cd *Dispatcher) DispatchLookup(ctx context.Context, req *v1.DispatchLookup
 
 	computed, err := cd.d.DispatchLookup(ctx, req)
 
-	// We only want to cache the result if there was no error and nothing was excluded.
-	if err == nil && len(computed.Metadata.LookupExcludedDirect) == 0 && len(computed.Metadata.LookupExcludedTtu) == 0 {
+	// We only want to cache the result if there was no error.
+	if err == nil {
 		log.Trace().Object("cachingLookup", req).Int("resultCount", len(computed.ResolvedOnrs)).Send()
 
 		adjustedComputed := proto.Clone(computed).(*v1.DispatchLookupResponse)
 		adjustedComputed.Metadata.CachedDispatchCount = adjustedComputed.Metadata.DispatchCount
 		adjustedComputed.Metadata.DispatchCount = 0
-		adjustedComputed.Metadata.LookupExcludedDirect = nil
-		adjustedComputed.Metadata.LookupExcludedTtu = nil
+		adjustedComputed.Metadata.DebugInfo = nil
 
 		requestKey := dispatch.LookupRequestToKey(req)
 		toCache := lookupResultEntry{adjustedComputed}
@@ -331,9 +350,13 @@ func (cd *Dispatcher) DispatchReachableResources(req *v1.DispatchReachableResour
 			adjustedResult := proto.Clone(result).(*v1.DispatchReachableResourcesResponse)
 			adjustedResult.Metadata.CachedDispatchCount = adjustedResult.Metadata.DispatchCount
 			adjustedResult.Metadata.DispatchCount = 0
+			adjustedResult.Metadata.DebugInfo = nil
 
 			toCacheResults = append(toCacheResults, adjustedResult)
-			estimatedSize += int64(len(result.Resource.Resource.Namespace) + len(result.Resource.Resource.ObjectId) + len(result.Resource.Resource.Relation))
+
+			for _, id := range result.Resource.ResourceIds {
+				estimatedSize += int64(len(id))
+			}
 			return result, nil
 		},
 	}

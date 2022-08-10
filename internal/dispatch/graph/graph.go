@@ -24,24 +24,24 @@ const errDispatch = "error dispatching request: %w"
 var tracer = otel.Tracer("spicedb/internal/dispatch/local")
 
 // NewLocalOnlyDispatcher creates a dispatcher that consults with the graph to formulate a response.
-func NewLocalOnlyDispatcher() dispatch.Dispatcher {
+func NewLocalOnlyDispatcher(concurrencyLimit uint16) dispatch.Dispatcher {
 	d := &localDispatcher{}
 
-	d.checker = graph.NewConcurrentChecker(d)
+	d.checker = graph.NewConcurrentChecker(d, concurrencyLimit)
 	d.expander = graph.NewConcurrentExpander(d)
-	d.lookupHandler = graph.NewConcurrentLookup(d, d)
-	d.reachableResourcesHandler = graph.NewConcurrentReachableResources(d)
+	d.lookupHandler = graph.NewConcurrentLookup(d, d, concurrencyLimit)
+	d.reachableResourcesHandler = graph.NewConcurrentReachableResources(d, concurrencyLimit)
 
 	return d
 }
 
 // NewDispatcher creates a dispatcher that consults with the graph and redispatches subproblems to
 // the provided redispatcher.
-func NewDispatcher(redispatcher dispatch.Dispatcher) dispatch.Dispatcher {
-	checker := graph.NewConcurrentChecker(redispatcher)
+func NewDispatcher(redispatcher dispatch.Dispatcher, concurrencyLimit uint16) dispatch.Dispatcher {
+	checker := graph.NewConcurrentChecker(redispatcher, concurrencyLimit)
 	expander := graph.NewConcurrentExpander(redispatcher)
-	lookupHandler := graph.NewConcurrentLookup(redispatcher, redispatcher)
-	reachableResourcesHandler := graph.NewConcurrentReachableResources(redispatcher)
+	lookupHandler := graph.NewConcurrentLookup(redispatcher, redispatcher, concurrencyLimit)
+	reachableResourcesHandler := graph.NewConcurrentReachableResources(redispatcher, concurrencyLimit)
 
 	return &localDispatcher{
 		checker:                   checker,
@@ -112,7 +112,25 @@ func (ld *localDispatcher) DispatchCheck(ctx context.Context, req *v1.DispatchCh
 
 	err := dispatch.CheckDepth(ctx, req)
 	if err != nil {
-		return &v1.DispatchCheckResponse{Metadata: emptyMetadata}, err
+		if req.Debug != v1.DispatchCheckRequest_ENABLE_DEBUGGING {
+			return &v1.DispatchCheckResponse{
+				Metadata: &v1.ResponseMeta{
+					DispatchCount: 0,
+				},
+			}, err
+		}
+
+		// NOTE: we return debug information here to ensure tooling can see the cycle.
+		return &v1.DispatchCheckResponse{
+			Metadata: &v1.ResponseMeta{
+				DispatchCount: 0,
+				DebugInfo: &v1.DebugInformation{
+					Check: &v1.CheckDebugTrace{
+						Request: req,
+					},
+				},
+			},
+		}, err
 	}
 
 	revision, err := decimal.NewFromString(req.Metadata.AtRevision)
@@ -150,6 +168,7 @@ func (ld *localDispatcher) DispatchCheck(ctx context.Context, req *v1.DispatchCh
 				},
 				Subject:  req.Subject,
 				Metadata: req.Metadata,
+				Debug:    req.Debug,
 			},
 			Revision: revision,
 		}
@@ -237,8 +256,9 @@ func (ld *localDispatcher) DispatchReachableResources(
 	stream dispatch.ReachableResourcesStream,
 ) error {
 	ctx, span := tracer.Start(stream.Context(), "DispatchReachableResources", trace.WithAttributes(
-		attribute.Stringer("start", stringableRelRef{req.ObjectRelation}),
-		attribute.Stringer("subject", stringableOnr{req.Subject}),
+		attribute.Stringer("resource-type", stringableRelRef{req.ResourceRelation}),
+		attribute.Stringer("subject-type", stringableRelRef{req.SubjectRelation}),
+		attribute.StringSlice("subject-ids", req.SubjectIds),
 	))
 	defer span.End()
 
@@ -257,7 +277,7 @@ func (ld *localDispatcher) DispatchReachableResources(
 		Revision:                          revision,
 	}
 
-	wrappedStream := dispatch.StreamWithContext[*v1.DispatchReachableResourcesResponse](ctx, stream)
+	wrappedStream := dispatch.StreamWithContext(ctx, stream)
 	return ld.reachableResourcesHandler.ReachableResources(validatedReq, wrappedStream)
 }
 
@@ -284,6 +304,6 @@ func rewriteError(original error) error {
 	}
 }
 
-var emptyMetadata *v1.ResponseMeta = &v1.ResponseMeta{
+var emptyMetadata = &v1.ResponseMeta{
 	DispatchCount: 0,
 }

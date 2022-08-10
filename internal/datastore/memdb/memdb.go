@@ -95,6 +95,10 @@ func (mdb *memdbDatastore) SnapshotReader(revision datastore.Revision) datastore
 	mdb.RLock()
 	defer mdb.RUnlock()
 
+	if len(mdb.revisions) == 0 {
+		return &memdbReader{nil, nil, datastore.NoRevision, fmt.Errorf("memdb datastore is not ready")}
+	}
+
 	if err := mdb.checkRevisionLocal(revision); err != nil {
 		return &memdbReader{nil, nil, datastore.NoRevision, err}
 	}
@@ -108,8 +112,13 @@ func (mdb *memdbDatastore) SnapshotReader(revision datastore.Revision) datastore
 		revIndex = len(mdb.revisions) - 1
 	}
 
-	snapshotRevision := mdb.revisions[revIndex].revision
-	roTxn := mdb.revisions[revIndex].db.Txn(false)
+	rev := mdb.revisions[revIndex]
+	if rev.db == nil {
+		return &memdbReader{nil, nil, datastore.NoRevision, fmt.Errorf("memdb datastore is already closed")}
+	}
+
+	snapshotRevision := rev.revision
+	roTxn := rev.db.Txn(false)
 
 	txSrc := func() (*memdb.Txn, error) {
 		return roTxn, nil
@@ -232,17 +241,26 @@ func (mdb *memdbDatastore) IsReady(ctx context.Context) (bool, error) {
 	return len(mdb.revisions) > 0, nil
 }
 
+func (mdb *memdbDatastore) Features(ctx context.Context) (*datastore.Features, error) {
+	return &datastore.Features{Watch: datastore.Feature{Enabled: true}}, nil
+}
+
 func (mdb *memdbDatastore) Close() error {
 	mdb.Lock()
 	defer mdb.Unlock()
 
 	// TODO Make this nil once we have removed all access to closed datastores
-	mdb.revisions = []snapshot{
-		{
-			revision: decimal.Zero,
-			db:       mdb.db,
-		},
+	if db := mdb.db; db != nil {
+		mdb.revisions = []snapshot{
+			{
+				revision: decimal.Zero,
+				db:       db,
+			},
+		}
+	} else {
+		mdb.revisions = []snapshot{}
 	}
+
 	mdb.db = nil
 
 	return nil
