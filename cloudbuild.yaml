@@ -26,14 +26,10 @@ steps:
 #step 4
 - name: 'gcr.io/cloud-builders/kubectl'
   args: ['apply', '-f', '$$SECRET_CONFIG']
-  secretEnv: ['SECRET_CONFIG']
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
   - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
-  availableSecrets:
-    secretManager:
-    - versionName: projects/597103356749/secrets/spice_env_secrets_dev
-      env: 'SECRET_CONFIG'
+  secretEnv: ['SECRET_CONFIG']
 #step 5
 - name: 'gcr.io/cloud-builders/kubectl'
   args: [
@@ -51,3 +47,7 @@ images: [
    'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA',
    'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest'
   ]
+availableSecrets:
+  secretManager:
+  - versionName: projects/597103356749/secrets/spice_env_secrets_dev
+    env: 'SECRET_CONFIG'
