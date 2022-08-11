@@ -4,16 +4,16 @@ steps:
   entrypoint: 'bash'
   args: [
    '-c', 
-   'docker pull gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest || exit 0'
+   'docker pull gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest || exit 0'
   ]
 #step 2
 - name: gcr.io/cloud-builders/docker
   args: [
    'build', 
    '-t', 
-   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA',
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA',
    '-t', 
-   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest',
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest',
    '.'
   ]
 
@@ -22,32 +22,32 @@ steps:
   args: ['apply', '-f', 'k8s/']
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
-  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-spice-autopilot'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
 #step 4
 - name: 'gcr.io/cloud-builders/kubectl'
   args: ['apply', '-f', '$$SECRET_CONFIG']
   secretEnv: ['SECRET_CONFIG']
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
-  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-spice-autopilot'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
   availableSecrets:
   secretManager:
   - versionName: projects/597103356749/secrets/spice_env_secrets_dev
     env: 'SECRET_CONFIG'
-#step 4
+#step 5
 - name: 'gcr.io/cloud-builders/kubectl'
   args: [
    'set', 
    'image', 
    'deployment', 
    'spicedb', 
-   'spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA'
+   'spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA'
   ]
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
-  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-spice-autopilot'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
 # push images to Google Container Registry with tags
 images: [
-   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:$BRANCH_NAME-$COMMIT_SHA',
-   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb:latest'
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA',
+   'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest'
   ]
