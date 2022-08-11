@@ -28,18 +28,11 @@ spec:
       dnsPolicy: "ClusterFirst"
       restartPolicy: "Always"
       terminationGracePeriodSeconds: 30
-      serviceAccountName: "spicedb"
-      volumes:
-      - name: google-cloud-key
-        secret:
-          secretName: spicedb-service-account-key
+      serviceAccountName: "spicedb-dev"
       containers:
         - name: "spicedb"
           image: "gcr.io/cog-analytics-backend/github.com/cognizance-processing/spicedb"
           imagePullPolicy: "IfNotPresent"
-          volumeMounts:
-          - name: google-cloud-key
-            mountPath: /var/secrets/google
           command: ["spicedb", "serve"] 
           env:
             # These flags are used to enable TLS for the gRPC and HTTP ports:
@@ -74,12 +67,12 @@ spec:
             - name: "SPICEDB_DATASTORE_ENGINE"
               valueFrom:
                 secretKeyRef:
-                  name: "datastoreuri"
+                  name: "environment-secrets"
                   key: "SPICEDB_DATASTORE_ENGINE"
             - name: "SPICEDB_DATASTORE_CONN_URI"
               valueFrom:
                   secretKeyRef:
-                    name: "datastoreuri"
+                    name: "environment-secrets"
                     key: "SPICEDB_DATASTORE_CONN_URI" 
             - name: "SPICEDB_DISPATCH_CLUSTER_ENABLED"
               value: "true"
@@ -94,10 +87,8 @@ spec:
             - name: "SPICEDB_GRPC_PRESHARED_KEY"
               valueFrom:
                 secretKeyRef:
-                  name: "spicedb"
+                  name: "environment-secrets"
                   key: "SPICEDB_GRPC_PRESHARED_KEY"
-            - name: GOOGLE_APPLICATION_CREDENTIALS
-              value: /var/secrets/google/key.json
           ports:
             - name: "grpc"
               containerPort: 50051
@@ -127,12 +118,11 @@ spec:
                 memory: "2Gi"
                 cpu:    "1"
         - name: cloud-sql-proxy
-          image: gcr.io/cloudsql-docker/gce-proxy:1.31.0
+          image: "gcr.io/cloudsql-docker/gce-proxy:1.28.0"
           command:
             - "/cloud_sql_proxy"
             - "-log_debug_stdout"
             - "-instances=cog-analytics-backend:us-central1:authz-store=tcp:5432"
-            - "-enable_iam_login"
             - "-term_timeout=10s"
           securityContext:
             runAsNonRoot: true
@@ -140,4 +130,3 @@ spec:
             requests:
               memory: "2Gi"
               cpu:    "1"
-
