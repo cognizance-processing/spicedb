@@ -49,5 +49,5 @@ images: [
   ]
 availableSecrets:
   secretManager:
-  - versionName: projects/597103356749/secrets/spice_env_secrets_dev
+  - versionName: projects/597103356749/secrets/spice_env_secrets_dev/versions/latest
     env: 'SECRET_CONFIG'
