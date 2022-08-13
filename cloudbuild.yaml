@@ -18,7 +18,7 @@ steps:
   ]
 
 #step 3
-- name: 'gcr.io/cloud-builders/getsecrets'
+- name: 'gcr.io/cloud-builders/gcloud'
   entrypoint: 'bash'
   args: [
    '-c', 
