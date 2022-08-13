@@ -18,18 +18,18 @@ steps:
   ]
 
 #step 3
+- name: 'gcr.io/cloud-builders/getsecrets'
+  entrypoint: 'bash'
+  args: [
+   '-c', 
+   "gcloud secrets versions access latest --secret=spice_env_secrets_dev --format='get(payload.data)' | tr '_-' '/+' | base64 -d > k8s/secrets.yaml"
+  ]
+#step 4
 - name: 'gcr.io/cloud-builders/kubectl'
   args: ['apply', '-f', 'k8s/']
   env:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
   - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
-#step 4
-- name: 'gcr.io/cloud-builders/kubectl'
-  args: ['apply', '-f', '$$SECRET_CONFIG']
-  env:
-  - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
-  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
-  secretEnv: ['SECRET_CONFIG']
 #step 5
 - name: 'gcr.io/cloud-builders/kubectl'
   args: [
@@ -47,7 +47,3 @@ images: [
    'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA',
    'gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest'
   ]
-availableSecrets:
-  secretManager:
-  - versionName: projects/597103356749/secrets/spice_env_secrets_dev/versions/latest
-    env: 'SECRET_CONFIG'
