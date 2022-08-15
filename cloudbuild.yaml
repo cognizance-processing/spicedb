@@ -31,22 +31,23 @@ steps:
   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
   - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
 #step 5
-# - name: 'gcr.io/cloud-builders/kubectl'
-#   args: [
-#    'set', 
-#    'image', 
-#    'deployment', 
-#    'spicedb', 
-#    'spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA'
-#   ]
-#   env:
-#   - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
-#   - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
+- name: 'gcr.io/cloud-builders/kubectl'
+  args: [
+   'set', 
+   'image', 
+   'deployment', 
+   'spicedb', 
+   'spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:$BRANCH_NAME-$COMMIT_SHA'
+  ]
+  env:
+  - 'CLOUDSDK_COMPUTE_ZONE=us-central1'
+  - 'CLOUDSDK_CONTAINER_CLUSTER=cog-dev-cluster'
+  #step 6 create pipeline release
 - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
   entrypoint: 'bash'
   args: [
     '-c', 
-    "gcloud deploy releases create release-$BUILD_ID --delivery-pipeline=spicedb --region=us-central1 --source=./ --images=spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest"
+    "gcloud deploy releases create release-$BUILD_ID --delivery-pipeline=spicedb --region=us-central1 --source=./ --images=spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest, "
   ]
 # push images to Google Container Registry with tags
 images: [
