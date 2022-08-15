@@ -47,7 +47,7 @@ steps:
   entrypoint: 'bash'
   args: [
     '-c', 
-    "gcloud deploy releases create release-$BUILD_ID --delivery-pipeline=spicedb --region=us-central1 --source=./ --images=spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest, "
+    "gcloud deploy releases create release-$BUILD_ID --delivery-pipeline=spicedb --region=us-central1 --source=./ --images=spicedb=gcr.io/cog-analytics-backend/github.com/cognizance-processing/dev/spicedb:latest,cloud-sql-proxy=gcr.io/cloudsql-docker/gce-proxy:latest "
   ]
 # push images to Google Container Registry with tags
 images: [
