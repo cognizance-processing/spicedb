@@ -10,6 +10,7 @@ metadata:
     prometheus.io/port: "9090"
 spec:
   type: LoadBalancer
+  loadBalancerIP: "34.132.113.166"
   selector:
     app: "spicedb"
   ports:
