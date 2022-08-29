@@ -1,0 +1,367 @@
+Index: internal/datastore/postgres/postgres.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package postgres\r\n\r\nimport (\r\n\t\"context\"\r\n\tdbsql \"database/sql\"\r\n\t\"errors\"\r\n\t\"fmt\"\r\n\t\"time\"\r\n\r\n\t\"golang.org/x/sync/errgroup\"\r\n\r\n\tsq \"github.com/Masterminds/squirrel\"\r\n\t\"github.com/jackc/pgconn\"\r\n\t\"github.com/jackc/pgx/v4\"\r\n\t\"github.com/jackc/pgx/v4/log/zerologadapter\"\r\n\t\"github.com/jackc/pgx/v4/pgxpool\"\r\n\t\"github.com/jackc/pgx/v4/stdlib\"\r\n\t\"github.com/ngrok/sqlmw\"\r\n\t\"github.com/prometheus/client_golang/prometheus\"\r\n\t\"github.com/rs/zerolog/log\"\r\n\t\"go.opentelemetry.io/otel\"\r\n\r\n\t\"github.com/authzed/spicedb/internal/datastore/common\"\r\n\t\"github.com/authzed/spicedb/internal/datastore/common/revisions\"\r\n\t\"github.com/authzed/spicedb/internal/datastore/postgres/migrations\"\r\n\t\"github.com/authzed/spicedb/pkg/datastore\"\r\n)\r\n\r\nfunc init() {\r\n\tdatastore.Engines = append(datastore.Engines, Engine)\r\n}\r\n\r\nconst (\r\n\tEngine           = \"postgres\"\r\n\ttableNamespace   = \"namespace_config\"\r\n\ttableTransaction = \"relation_tuple_transaction\"\r\n\ttableTuple       = \"relation_tuple\"\r\n\r\n\tcolID               = \"id\"\r\n\tcolTimestamp        = \"timestamp\"\r\n\tcolNamespace        = \"namespace\"\r\n\tcolConfig           = \"serialized_config\"\r\n\tcolCreatedTxn       = \"created_transaction\"\r\n\tcolDeletedTxn       = \"deleted_transaction\"\r\n\tcolObjectID         = \"object_id\"\r\n\tcolRelation         = \"relation\"\r\n\tcolUsersetNamespace = \"userset_namespace\"\r\n\tcolUsersetObjectID  = \"userset_object_id\"\r\n\tcolUsersetRelation  = \"userset_relation\"\r\n\r\n\terrUnableToInstantiate = \"unable to instantiate datastore: %w\"\r\n\r\n\tcreateTxn = \"INSERT INTO relation_tuple_transaction DEFAULT VALUES RETURNING id\"\r\n\r\n\t// This is the largest positive integer possible in postgresql\r\n\tliveDeletedTxnID = uint64(9223372036854775807)\r\n\r\n\ttracingDriverName = \"postgres-tracing\"\r\n\r\n\tbatchDeleteSize = 1000\r\n\r\n\tpgSerializationFailure      = \"40001\"\r\n\tpgUniqueConstraintViolation = \"23505\"\r\n)\r\n\r\nvar (\r\n\tgcDurationHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{\r\n\t\tNamespace: \"spicedb\",\r\n\t\tSubsystem: \"datastore\",\r\n\t\tName:      \"postgres_gc_duration\",\r\n\t\tHelp:      \"postgres garbage collection duration distribution in seconds.\",\r\n\t\tBuckets:   []float64{0.01, 0.1, 0.5, 1, 5, 10, 25, 60, 120},\r\n\t})\r\n\r\n\tgcRelationshipsClearedGauge = prometheus.NewGauge(prometheus.GaugeOpts{\r\n\t\tNamespace: \"spicedb\",\r\n\t\tSubsystem: \"datastore\",\r\n\t\tName:      \"postgres_relationships_cleared\",\r\n\t\tHelp:      \"number of relationships cleared by postgres garbage collection.\",\r\n\t})\r\n\r\n\tgcTransactionsClearedGauge = prometheus.NewGauge(prometheus.GaugeOpts{\r\n\t\tNamespace: \"spicedb\",\r\n\t\tSubsystem: \"datastore\",\r\n\t\tName:      \"postgres_transactions_cleared\",\r\n\t\tHelp:      \"number of transactions cleared by postgres garbage collection.\",\r\n\t})\r\n)\r\n\r\nfunc init() {\r\n\tdbsql.Register(tracingDriverName, sqlmw.Driver(stdlib.GetDefaultDriver(), new(traceInterceptor)))\r\n}\r\n\r\nvar (\r\n\tpsql = sq.StatementBuilder.PlaceholderFormat(sq.Dollar)\r\n\r\n\tgetRevision = psql.Select(\"MAX(id)\").From(tableTransaction)\r\n\r\n\tgetNow = psql.Select(\"NOW()\")\r\n\r\n\ttracer = otel.Tracer(\"spicedb/internal/datastore/postgres\")\r\n)\r\n\r\ntype sqlFilter interface {\r\n\tToSql() (string, []interface{}, error)\r\n}\r\n\r\n// NewPostgresDatastore initializes a SpiceDB datastore that uses a PostgreSQL\r\n// database by leveraging manual book-keeping to implement revisioning.\r\n//\r\n// This datastore is also tested to be compatible with CockroachDB.\r\nfunc NewPostgresDatastore(\r\n\turl string,\r\n\toptions ...Option,\r\n) (datastore.Datastore, error) {\r\n\tconfig, err := generateConfig(options)\r\n\tif err != nil {\r\n\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t}\r\n\r\n\t// config must be initialized by ParseConfig\r\n\tpgxConfig, err := pgxpool.ParseConfig(url)\r\n\tif err != nil {\r\n\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t}\r\n\r\n\tif config.maxOpenConns != nil {\r\n\t\tpgxConfig.MaxConns = int32(*config.maxOpenConns)\r\n\t}\r\n\tif config.minOpenConns != nil {\r\n\t\tpgxConfig.MinConns = int32(*config.minOpenConns)\r\n\t}\r\n\tif config.connMaxIdleTime != nil {\r\n\t\tpgxConfig.MaxConnIdleTime = *config.connMaxIdleTime\r\n\t}\r\n\tif config.connMaxLifetime != nil {\r\n\t\tpgxConfig.MaxConnLifetime = *config.connMaxLifetime\r\n\t}\r\n\tif config.healthCheckPeriod != nil {\r\n\t\tpgxConfig.HealthCheckPeriod = *config.healthCheckPeriod\r\n\t}\r\n\r\n\tpgxConfig.ConnConfig.Logger = zerologadapter.NewLogger(log.Logger)\r\n\r\n\tdbpool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)\r\n\tif err != nil {\r\n\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t}\r\n\r\n\tif config.enablePrometheusStats {\r\n\t\tcollector := NewPgxpoolStatsCollector(dbpool, \"spicedb\")\r\n\t\terr := prometheus.Register(collector)\r\n\t\tif err != nil {\r\n\t\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t\t}\r\n\t\terr = prometheus.Register(gcDurationHistogram)\r\n\t\tif err != nil {\r\n\t\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t\t}\r\n\t\terr = prometheus.Register(gcRelationshipsClearedGauge)\r\n\t\tif err != nil {\r\n\t\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t\t}\r\n\t\terr = prometheus.Register(gcTransactionsClearedGauge)\r\n\t\tif err != nil {\r\n\t\t\treturn nil, fmt.Errorf(errUnableToInstantiate, err)\r\n\t\t}\r\n\t}\r\n\r\n\tgcCtx, cancelGc := context.WithCancel(context.Background())\r\n\r\n\tquantizationPeriodNanos := config.revisionQuantization.Nanoseconds()\r\n\tif quantizationPeriodNanos < 1 {\r\n\t\tquantizationPeriodNanos = 1\r\n\t}\r\n\trevisionQuery := fmt.Sprintf(\r\n\t\tquerySelectRevision,\r\n\t\tcolID,\r\n\t\ttableTransaction,\r\n\t\tcolTimestamp,\r\n\t\tquantizationPeriodNanos,\r\n\t)\r\n\r\n\tvalidTransactionQuery := fmt.Sprintf(\r\n\t\tqueryValidTransaction,\r\n\t\tcolID,\r\n\t\ttableTransaction,\r\n\t\tcolTimestamp,\r\n\t\tconfig.gcWindow.Seconds(),\r\n\t)\r\n\r\n\tmaxRevisionStaleness := time.Duration(float64(config.revisionQuantization.Nanoseconds())*\r\n\t\tconfig.maxRevisionStalenessPercent) * time.Nanosecond\r\n\r\n\tdatastore := &pgDatastore{\r\n\t\tCachedOptimizedRevisions: revisions.NewCachedOptimizedRevisions(\r\n\t\t\tmaxRevisionStaleness,\r\n\t\t),\r\n\t\tdburl:                   url,\r\n\t\tdbpool:                  dbpool,\r\n\t\twatchBufferLength:       config.watchBufferLength,\r\n\t\toptimizedRevisionQuery:  revisionQuery,\r\n\t\tvalidTransactionQuery:   validTransactionQuery,\r\n\t\tgcWindowInverted:        -1 * config.gcWindow,\r\n\t\tgcInterval:              config.gcInterval,\r\n\t\tgcMaxOperationTime:      config.gcMaxOperationTime,\r\n\t\tanalyzeBeforeStatistics: config.analyzeBeforeStatistics,\r\n\t\tusersetBatchSize:        config.splitAtUsersetCount,\r\n\t\tgcCtx:                   gcCtx,\r\n\t\tcancelGc:                cancelGc,\r\n\t\treadTxOptions:           pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadOnly},\r\n\t\tmaxRetries:              config.maxRetries,\r\n\t}\r\n\r\n\tdatastore.SetOptimizedRevisionFunc(datastore.optimizedRevisionFunc)\r\n\r\n\t// Start a goroutine for garbage collection.\r\n\tif datastore.gcInterval > 0*time.Minute {\r\n\t\tdatastore.gcGroup, datastore.gcCtx = errgroup.WithContext(datastore.gcCtx)\r\n\t\tdatastore.gcGroup.Go(datastore.runGarbageCollector)\r\n\t} else {\r\n\t\tlog.Warn().Msg(\"garbage collection disabled in postgres driver\")\r\n\t}\r\n\r\n\treturn datastore, nil\r\n}\r\n\r\ntype pgDatastore struct {\r\n\t*revisions.CachedOptimizedRevisions\r\n\r\n\tdburl                   string\r\n\tdbpool                  *pgxpool.Pool\r\n\twatchBufferLength       uint16\r\n\toptimizedRevisionQuery  string\r\n\tvalidTransactionQuery   string\r\n\tgcWindowInverted        time.Duration\r\n\tgcInterval              time.Duration\r\n\tgcMaxOperationTime      time.Duration\r\n\tusersetBatchSize        uint16\r\n\tanalyzeBeforeStatistics bool\r\n\treadTxOptions           pgx.TxOptions\r\n\tmaxRetries              uint8\r\n\r\n\tgcGroup  *errgroup.Group\r\n\tgcCtx    context.Context\r\n\tcancelGc context.CancelFunc\r\n}\r\n\r\nfunc (pgd *pgDatastore) SnapshotReader(rev datastore.Revision) datastore.Reader {\r\n\tcreateTxFunc := func(ctx context.Context) (pgx.Tx, common.TxCleanupFunc, error) {\r\n\t\ttx, err := pgd.dbpool.BeginTx(ctx, pgd.readTxOptions)\r\n\t\tif err != nil {\r\n\t\t\treturn nil, nil, err\r\n\t\t}\r\n\r\n\t\tcleanup := func(ctx context.Context) {\r\n\t\t\tif err := tx.Rollback(ctx); err != nil {\r\n\t\t\t\tlog.Ctx(ctx).Err(err).Msg(\"error running transaction cleanup function\")\r\n\t\t\t}\r\n\t\t}\r\n\r\n\t\treturn tx, cleanup, nil\r\n\t}\r\n\r\n\tquerySplitter := common.TupleQuerySplitter{\r\n\t\tExecutor:         common.NewPGXExecutor(createTxFunc),\r\n\t\tUsersetBatchSize: pgd.usersetBatchSize,\r\n\t}\r\n\r\n\treturn &pgReader{\r\n\t\tcreateTxFunc,\r\n\t\tquerySplitter,\r\n\t\tbuildLivingObjectFilterForRevision(rev),\r\n\t}\r\n}\r\n\r\nfunc noCleanup(context.Context) {}\r\n\r\n// ReadWriteTx tarts a read/write transaction, which will be committed if no error is\r\n// returned and rolled back if an error is returned.\r\nfunc (pgd *pgDatastore) ReadWriteTx(\r\n\tctx context.Context,\r\n\tfn datastore.TxUserFunc,\r\n) (datastore.Revision, error) {\r\n\tvar err error\r\n\tfor i := uint8(0); i <= pgd.maxRetries; i++ {\r\n\t\tvar newTxnID uint64\r\n\t\terr = pgd.dbpool.BeginTxFunc(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {\r\n\t\t\tvar err error\r\n\t\t\tnewTxnID, err = createNewTransaction(ctx, tx)\r\n\t\t\tif err != nil {\r\n\t\t\t\treturn err\r\n\t\t\t}\r\n\r\n\t\t\tlongLivedTx := func(context.Context) (pgx.Tx, common.TxCleanupFunc, error) {\r\n\t\t\t\treturn tx, noCleanup, nil\r\n\t\t\t}\r\n\r\n\t\t\tquerySplitter := common.TupleQuerySplitter{\r\n\t\t\t\tExecutor:         common.NewPGXExecutor(longLivedTx),\r\n\t\t\t\tUsersetBatchSize: pgd.usersetBatchSize,\r\n\t\t\t}\r\n\r\n\t\t\trwt := &pgReadWriteTXN{\r\n\t\t\t\t&pgReader{\r\n\t\t\t\t\tlongLivedTx,\r\n\t\t\t\t\tquerySplitter,\r\n\t\t\t\t\tcurrentlyLivingObjects,\r\n\t\t\t\t},\r\n\t\t\t\tctx,\r\n\t\t\t\ttx,\r\n\t\t\t\tnewTxnID,\r\n\t\t\t}\r\n\r\n\t\t\treturn fn(ctx, rwt)\r\n\t\t})\r\n\t\tif err != nil {\r\n\t\t\tif errorRetryable(err) {\r\n\t\t\t\tcontinue\r\n\t\t\t}\r\n\t\t\treturn datastore.NoRevision, err\r\n\t\t}\r\n\t\treturn revisionFromTransaction(newTxnID), nil\r\n\t}\r\n\treturn datastore.NoRevision, fmt.Errorf(\"max retries exceeded: %w\", err)\r\n}\r\n\r\nfunc (pgd *pgDatastore) Close() error {\r\n\tpgd.cancelGc()\r\n\r\n\tif pgd.gcGroup != nil {\r\n\t\terr := pgd.gcGroup.Wait()\r\n\t\tlog.Warn().Err(err).Msg(\"completed shutdown of postgres datastore\")\r\n\t}\r\n\r\n\tpgd.dbpool.Close()\r\n\treturn nil\r\n}\r\n\r\nfunc errorRetryable(err error) bool {\r\n\tvar pgerr *pgconn.PgError\r\n\tif !errors.As(err, &pgerr) {\r\n\t\tlog.Debug().Err(err).Msg(\"couldn't determine a sqlstate error code\")\r\n\t\treturn false\r\n\t}\r\n\r\n\t// We need to check unique constraint here because some versions of postgres have an error where\r\n\t// unique constraint violations are raised instead of serialization errors.\r\n\t// (e.g. https://www.postgresql.org/message-id/flat/CAGPCyEZG76zjv7S31v_xPeLNRuzj-m%3DY2GOY7PEzu7vhB%3DyQog%40mail.gmail.com)\r\n\treturn pgerr.SQLState() == pgSerializationFailure || pgerr.SQLState() == pgUniqueConstraintViolation\r\n}\r\n\r\nfunc (pgd *pgDatastore) getNow(ctx context.Context) (time.Time, error) {\r\n\t// Retrieve the `now` time from the database.\r\n\tnowSQL, nowArgs, err := getNow.ToSql()\r\n\tif err != nil {\r\n\t\treturn time.Now(), err\r\n\t}\r\n\r\n\tvar now time.Time\r\n\terr = pgd.dbpool.QueryRow(datastore.SeparateContextWithTracing(ctx), nowSQL, nowArgs...).Scan(&now)\r\n\tif err != nil {\r\n\t\treturn time.Now(), err\r\n\t}\r\n\r\n\t// RelationTupleTransaction is not timezone aware\r\n\t// Explicitly use UTC before using as a query arg\r\n\tnow = now.UTC()\r\n\r\n\treturn now, nil\r\n}\r\n\r\nfunc (pgd *pgDatastore) IsReady(ctx context.Context) (bool, error) {\r\n\theadMigration, err := migrations.DatabaseMigrations.HeadRevision()\r\n\tif err != nil {\r\n\t\treturn false, fmt.Errorf(\"invalid head migration found for postgres: %w\", err)\r\n\t}\r\n\r\n\tcurrentRevision, err := migrations.NewAlembicPostgresDriver(pgd.dburl)\r\n\tif err != nil {\r\n\t\treturn false, err\r\n\t}\r\n\tdefer currentRevision.Close()\r\n\r\n\tversion, err := currentRevision.Version(ctx)\r\n\tif err != nil {\r\n\t\treturn false, err\r\n\t}\r\n\r\n\treturn version == headMigration, nil\r\n}\r\n\r\nfunc buildLivingObjectFilterForRevision(revision datastore.Revision) queryFilterer {\r\n\treturn func(original sq.SelectBuilder) sq.SelectBuilder {\r\n\t\treturn original.Where(sq.LtOrEq{colCreatedTxn: transactionFromRevision(revision)}).\r\n\t\t\tWhere(sq.Or{\r\n\t\t\t\tsq.Eq{colDeletedTxn: liveDeletedTxnID},\r\n\t\t\t\tsq.Gt{colDeletedTxn: revision},\r\n\t\t\t})\r\n\t}\r\n}\r\n\r\nfunc currentlyLivingObjects(original sq.SelectBuilder) sq.SelectBuilder {\r\n\treturn original.Where(sq.Eq{colDeletedTxn: liveDeletedTxnID})\r\n}\r\n\r\nvar _ datastore.Datastore = &pgDatastore{}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/internal/datastore/postgres/postgres.go b/internal/datastore/postgres/postgres.go
+--- a/internal/datastore/postgres/postgres.go	(revision 2dfe020e9f87e6ca44fe51c9b8a14e0ae983f1e6)
++++ b/internal/datastore/postgres/postgres.go	(date 1654628669661)
+@@ -5,6 +5,7 @@
+ 	dbsql "database/sql"
+ 	"errors"
+ 	"fmt"
++	"os"
+ 	"time"
+ 
+ 	"golang.org/x/sync/errgroup"
+@@ -109,6 +110,7 @@
+ // database by leveraging manual book-keeping to implement revisioning.
+ //
+ // This datastore is also tested to be compatible with CockroachDB.
++
+ func NewPostgresDatastore(
+ 	url string,
+ 	options ...Option,
+@@ -119,7 +121,14 @@
+ 	}
+ 
+ 	// config must be initialized by ParseConfig
+-	pgxConfig, err := pgxpool.ParseConfig(url)
++	//pgxConfig, err := pgxpool.ParseConfig(url)
++	socketDir, isSet := os.LookupEnv("DB_SOCKET_DIR")
++	if !isSet {
++		socketDir = "/cloudsql"
++	}
++	dbURI := fmt.Sprintf("user=%s password=%s database=%s host=%s/%s", "new", "Happy456", "postgres", socketDir, "cog-analytics-backend:us-central1:authz-store")
++
++	pgxConfig, err := pgxpool.ParseConfig(dbURI)
+ 	if err != nil {
+ 		return nil, fmt.Errorf(errUnableToInstantiate, err)
+ 	}
+@@ -142,13 +151,12 @@
+ 
+ 	pgxConfig.ConnConfig.Logger = zerologadapter.NewLogger(log.Logger)
+ 
+-	dbpool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
++	pool, err := pgxpool.ConnectConfig(context.Background(), pgxConfig)
+ 	if err != nil {
+ 		return nil, fmt.Errorf(errUnableToInstantiate, err)
+ 	}
+-
+ 	if config.enablePrometheusStats {
+-		collector := NewPgxpoolStatsCollector(dbpool, "spicedb")
++		collector := NewPgxpoolStatsCollector(pool, "spicedb")
+ 		err := prometheus.Register(collector)
+ 		if err != nil {
+ 			return nil, fmt.Errorf(errUnableToInstantiate, err)
+@@ -166,7 +174,6 @@
+ 			return nil, fmt.Errorf(errUnableToInstantiate, err)
+ 		}
+ 	}
+-
+ 	gcCtx, cancelGc := context.WithCancel(context.Background())
+ 
+ 	quantizationPeriodNanos := config.revisionQuantization.Nanoseconds()
+@@ -197,7 +204,7 @@
+ 			maxRevisionStaleness,
+ 		),
+ 		dburl:                   url,
+-		dbpool:                  dbpool,
++		dbpool:                  pool,
+ 		watchBufferLength:       config.watchBufferLength,
+ 		optimizedRevisionQuery:  revisionQuery,
+ 		validTransactionQuery:   validTransactionQuery,
+Index: cmd/spicedb/main.go
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>package main\r\n\r\nimport (\r\n\t\"errors\"\r\n\t\"math/rand\"\r\n\t\"os\"\r\n\t\"time\"\r\n\r\n\t\"github.com/cespare/xxhash/v2\"\r\n\t\"github.com/rs/zerolog/log\"\r\n\t\"github.com/sercand/kuberesolver/v3\"\r\n\t\"github.com/spf13/cobra\"\r\n\t\"google.golang.org/grpc/balancer\"\r\n\t_ \"google.golang.org/grpc/xds\"\r\n\r\n\tconsistentbalancer \"github.com/authzed/spicedb/pkg/balancer\"\r\n\t\"github.com/authzed/spicedb/pkg/cmd\"\r\n\tcmdutil \"github.com/authzed/spicedb/pkg/cmd/server\"\r\n\t\"github.com/authzed/spicedb/pkg/cmd/testserver\"\r\n)\r\n\r\nconst (\r\n\thashringReplicationFactor = 20\r\n\tbackendsPerKey            = 1\r\n)\r\n\r\nvar errParsing = errors.New(\"parsing error\")\r\n\r\nfunc main() {\r\n\t// Set up a seed for randomness\r\n\trand.Seed(time.Now().UnixNano())\r\n\r\n\t// Enable Kubernetes gRPC resolver\r\n\tkuberesolver.RegisterInCluster()\r\n\r\n\t// Enable consistent hashring gRPC load balancer\r\n\tbalancer.Register(consistentbalancer.NewConsistentHashringBuilder(\r\n\t\txxhash.Sum64,\r\n\t\thashringReplicationFactor,\r\n\t\tbackendsPerKey,\r\n\t))\r\n\r\n\t// Create a root command\r\n\trootCmd := cmd.NewRootCommand(\"spicedb\")\r\n\trootCmd.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {\r\n\t\tcmd.Println(err)\r\n\t\tcmd.Println(cmd.UsageString())\r\n\t\treturn errParsing\r\n\t})\r\n\tcmd.RegisterRootFlags(rootCmd)\r\n\r\n\t// Add a version command\r\n\tversionCmd := cmd.NewVersionCommand(rootCmd.Use)\r\n\tcmd.RegisterVersionFlags(versionCmd)\r\n\trootCmd.AddCommand(versionCmd)\r\n\r\n\t// Add migration commands\r\n\tmigrateCmd := cmd.NewMigrateCommand(rootCmd.Use)\r\n\tcmd.RegisterMigrateFlags(migrateCmd)\r\n\trootCmd.AddCommand(migrateCmd)\r\n\r\n\theadCmd := cmd.NewHeadCommand(rootCmd.Use)\r\n\tcmd.RegisterHeadFlags(headCmd)\r\n\trootCmd.AddCommand(headCmd)\r\n\r\n\t// Add server commands\r\n\tvar serverConfig cmdutil.Config\r\n\tserveCmd := cmd.NewServeCommand(rootCmd.Use, &serverConfig)\r\n\tcmd.RegisterServeFlags(serveCmd, &serverConfig)\r\n\trootCmd.AddCommand(serveCmd)\r\n\r\n\tdevtoolsCmd := cmd.NewDevtoolsCommand(rootCmd.Use)\r\n\tcmd.RegisterDevtoolsFlags(devtoolsCmd)\r\n\trootCmd.AddCommand(devtoolsCmd)\r\n\r\n\tvar testServerConfig testserver.Config\r\n\ttestingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)\r\n\tcmd.RegisterTestingFlags(testingCmd, &testServerConfig)\r\n\trootCmd.AddCommand(testingCmd)\r\n\tif err := rootCmd.Execute(); err != nil {\r\n\t\tif !errors.Is(err, errParsing) {\r\n\t\t\tlog.Err(err).Msg(\"terminated with errors\")\r\n\t\t}\r\n\t\tos.Exit(1)\r\n\t}\r\n}\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/cmd/spicedb/main.go b/cmd/spicedb/main.go
+--- a/cmd/spicedb/main.go	(revision 2dfe020e9f87e6ca44fe51c9b8a14e0ae983f1e6)
++++ b/cmd/spicedb/main.go	(date 1654628390976)
+@@ -3,11 +3,9 @@
+ import (
+ 	"errors"
+ 	"math/rand"
+-	"os"
+ 	"time"
+ 
+ 	"github.com/cespare/xxhash/v2"
+-	"github.com/rs/zerolog/log"
+ 	"github.com/sercand/kuberesolver/v3"
+ 	"github.com/spf13/cobra"
+ 	"google.golang.org/grpc/balancer"
+@@ -77,10 +75,9 @@
+ 	testingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)
+ 	cmd.RegisterTestingFlags(testingCmd, &testServerConfig)
+ 	rootCmd.AddCommand(testingCmd)
+-	if err := rootCmd.Execute(); err != nil {
+-		if !errors.Is(err, errParsing) {
+-			log.Err(err).Msg("terminated with errors")
+-		}
+-		os.Exit(1)
+-	}
++	// if err := rootCmd.Execute(); err != nil {
++	// 	if !errors.Is(err, errParsing) {
++	// 		log.Err(err).Msg("terminated with errors")
++	// 	}
++	// }
+ }
+Index: .idea/vcs.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/vcs.xml b/.idea/vcs.xml
+new file mode 100644
+--- /dev/null	(date 1654628677857)
++++ b/.idea/vcs.xml	(date 1654628677857)
+@@ -0,0 +1,12 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="VcsDirectoryMappings">
++    <mapping directory="$PROJECT_DIR$" vcs="Git" />
++<<<<<<< Updated upstream
++    <mapping directory="$PROJECT_DIR$/authzed-spicedb" vcs="Git" />
++    <mapping directory="$PROJECT_DIR$/authzed-spicedb_-_2021-10-03_02-31-22" vcs="Git" />
++    <mapping directory="$PROJECT_DIR$/cmd/spicedb/uhm/authzed-spicedb_-_2021-10-03_02-31-22" vcs="Git" />
++=======
++>>>>>>> Stashed changes
++  </component>
++</project>
+\ No newline at end of file
+Index: Dockerfile
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>FROM golang:1.18-alpine3.15 AS spicedb-builder\r\nWORKDIR /go/src/app\r\nRUN apk update && apk add --no-cache git\r\nCOPY . .\r\nRUN go build -v ./cmd/spicedb/\r\n\r\nFROM alpine:3.15\r\nRUN [ ! -e /etc/nsswitch.conf ] && echo 'hosts: files dns' > /etc/nsswitch.conf\r\nCOPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.6 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe\r\nCOPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb\r\nENTRYPOINT [\"spicedb\"]\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/Dockerfile b/Dockerfile
+--- a/Dockerfile	(revision 2dfe020e9f87e6ca44fe51c9b8a14e0ae983f1e6)
++++ b/Dockerfile	(date 1654628610340)
+@@ -1,11 +1,14 @@
+ FROM golang:1.18-alpine3.15 AS spicedb-builder
+ WORKDIR /go/src/app
+ RUN apk update && apk add --no-cache git
+-COPY . .
++COPY . ./
++#Spice build
+ RUN go build -v ./cmd/spicedb/
+ 
+ FROM alpine:3.15
+ RUN [ ! -e /etc/nsswitch.conf ] && echo 'hosts: files dns' > /etc/nsswitch.conf
+ COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.6 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
+ COPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb
+-ENTRYPOINT ["spicedb"]
++EXPOSE 8080
++EXPOSE 50051
++ENTRYPOINT ["spicedb", "serve", "--grpc-preshared-key", "'realkeyhere'", "--datastore-engine=postgres", "--datastore-conn-uri='postgres://new:Happy456@130.211.209.165/postgres?sslmode=disable'"]
+Index: .idea/workspace.xml
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/.idea/workspace.xml b/.idea/workspace.xml
+new file mode 100644
+--- /dev/null	(date 1654628678839)
++++ b/.idea/workspace.xml	(date 1654628678839)
+@@ -0,0 +1,167 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<project version="4">
++  <component name="AutoImportSettings">
++    <option name="autoReloadType" value="ALL" />
++  </component>
++  <component name="ChangeListManager">
++<<<<<<< Updated upstream
++    <list default="true" id="d9620b19-ba74-443e-86a2-fb9d25c50edf" name="Changes" comment="" />
++=======
++    <list default="true" id="40531f1d-d16d-4107-a3d2-58597219f20a" name="Changes" comment="">
++      <change beforePath="$PROJECT_DIR$/.idea/vcs.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/go.mod" beforeDir="false" afterPath="$PROJECT_DIR$/go.mod" afterDir="false" />
++      <change beforePath="$PROJECT_DIR$/internal/datastore/postgres/postgres.go" beforeDir="false" afterPath="$PROJECT_DIR$/internal/datastore/postgres/postgres.go" afterDir="false" />
++    </list>
++>>>>>>> Stashed changes
++    <option name="SHOW_DIALOG" value="false" />
++    <option name="HIGHLIGHT_CONFLICTS" value="true" />
++    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
++    <option name="LAST_RESOLUTION" value="IGNORE" />
++  </component>
++<<<<<<< Updated upstream
++  <component name="GOROOT" url="file://$PROJECT_DIR$/../../../linuxbrew/.linuxbrew/Cellar/go/1.18.2/libexec" />
++  <component name="Git.Settings">
++    <option name="RECENT_BRANCH_BY_REPOSITORY">
++      <map>
++        <entry key="$PROJECT_DIR$" value="spice_cloud_deploy" />
++=======
++  <component name="GOROOT" url="file://$USER_HOME$/go/go1.18.2" />
++  <component name="Git.Settings">
++    <option name="RECENT_BRANCH_BY_REPOSITORY">
++      <map>
++        <entry key="$PROJECT_DIR$" value="main" />
++>>>>>>> Stashed changes
++      </map>
++    </option>
++    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
++  </component>
++<<<<<<< Updated upstream
++  <component name="MarkdownSettingsMigration">
++    <option name="stateVersion" value="1" />
++  </component>
++  <component name="ProjectId" id="29yOoKfEFDExwpHYyIoIJec9Cgj" />
++  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
++=======
++  <component name="HighlightingSettingsPerFile">
++    <setting file="file://$PROJECT_DIR$/Dockerfile" root0="FORCE_HIGHLIGHTING" />
++    <setting file="file://$PROJECT_DIR$/buf.work.yaml" root0="FORCE_HIGHLIGHTING" />
++    <setting file="file://$PROJECT_DIR$/cmd/spicedb/main.go" root0="FORCE_HIGHLIGHTING" />
++    <setting file="file://$PROJECT_DIR$/internal/datastore/postgres/postgres.go" root0="FORCE_HIGHLIGHTING" />
++    <setting file="file://$PROJECT_DIR$/internal/services/server.go" root0="FORCE_HIGHLIGHTING" />
++  </component>
++  <component name="MarkdownSettingsMigration">
++    <option name="stateVersion" value="1" />
++  </component>
++  <component name="ProjectId" id="2AFNxaFJsSq8g5IYtWa3hucga7L" />
++>>>>>>> Stashed changes
++  <component name="ProjectViewState">
++    <option name="hideEmptyMiddlePackages" value="true" />
++    <option name="showLibraryContents" value="true" />
++  </component>
++<<<<<<< Updated upstream
++  <component name="PropertiesComponent"><![CDATA[{
++  "keyToString": {
++    "RunOnceActivity.OpenProjectViewOnStart": "true",
++    "RunOnceActivity.ShowReadmeOnStart": "true",
++    "RunOnceActivity.go.format.on.save.advertiser.fired": "true",
++    "RunOnceActivity.go.formatter.settings.were.checked": "true",
++    "RunOnceActivity.go.migrated.go.modules.settings": "true",
++    "RunOnceActivity.go.modules.go.list.on.any.changes.was.set": "true",
++    "RunOnceActivity.go.watchers.conflict.with.on.save.actions.check.performed": "true",
++    "WebServerToolWindowFactoryState": "false",
++    "codeWithMe.voiceChat.enabledByDefault": "false",
++    "go.import.settings.migrated": "true",
++    "go.sdk.automatically.set": "true",
++    "last_opened_file_path": "/home/cici/GolandProjects/spicedb/cmd/spicedb/main.go",
++    "nodejs_package_manager_path": "npm"
++  }
++}]]></component>
++  <component name="RecentsManager">
++    <key name="MoveFile.RECENT_KEYS">
++      <recent name="$PROJECT_DIR$/cmd/spicedb/uhm" />
++    </key>
++  </component>
++  <component name="RunManager">
++    <configuration name="go build spicedb" type="GoApplicationRunConfiguration" factoryName="Go Application">
++      <module name="spicedb" />
++      <working_directory value="$PROJECT_DIR$" />
++      <useCustomBuildTags value="true" />
++      <kind value="FILE" />
++      <package value="$PROJECT_DIR$/cmd/spicedb" />
++      <directory value="$PROJECT_DIR$" />
++      <filePath value="$PROJECT_DIR$/cmd/spicedb/main.go" />
++=======
++  <component name="PropertiesComponent">{
++  &quot;keyToString&quot;: {
++    &quot;RunOnceActivity.OpenProjectViewOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.go.format.on.save.advertiser.fired&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.go.formatter.settings.were.checked&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.go.migrated.go.modules.settings&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.go.modules.go.list.on.any.changes.was.set&quot;: &quot;true&quot;,
++    &quot;RunOnceActivity.go.watchers.conflict.with.on.save.actions.check.performed&quot;: &quot;true&quot;,
++    &quot;WebServerToolWindowFactoryState&quot;: &quot;false&quot;,
++    &quot;com.google.cloudcode.ide_session_index&quot;: &quot;20220607_0001&quot;,
++    &quot;go.import.settings.migrated&quot;: &quot;true&quot;,
++    &quot;go.sdk.automatically.set&quot;: &quot;true&quot;,
++    &quot;last_opened_file_path&quot;: &quot;C:/Users/twind&quot;,
++    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
++    &quot;settings.editor.selected.configurable&quot;: &quot;preferences.pluginManager&quot;
++  }
++}</component>
++  <component name="RunManager">
++    <configuration default="true" type="GoApplicationRunConfiguration" factoryName="Go Application">
++      <module name="spicedb" />
++      <working_directory value="$PROJECT_DIR$" />
++      <kind value="FILE" />
++      <directory value="$PROJECT_DIR$" />
++      <filePath value="$PROJECT_DIR$" />
++      <method v="2" />
++    </configuration>
++    <configuration default="true" type="GoTestRunConfiguration" factoryName="Go Test">
++      <module name="spicedb" />
++      <working_directory value="$PROJECT_DIR$" />
++      <kind value="DIRECTORY" />
++      <directory value="$PROJECT_DIR$" />
++      <filePath value="$PROJECT_DIR$" />
++      <framework value="gotest" />
++>>>>>>> Stashed changes
++      <method v="2" />
++    </configuration>
++  </component>
++  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
++  <component name="TypeScriptGeneratedFilesManager">
++    <option name="version" value="3" />
++  </component>
++  <component name="Vcs.Log.Tabs.Properties">
++    <option name="TAB_STATES">
++      <map>
++        <entry key="MAIN">
++          <value>
++            <State>
++              <option name="FILTERS">
++                <map>
++                  <entry key="branch">
++                    <value>
++                      <list>
++<<<<<<< Updated upstream
++                        <option value="mergeEm" />
++=======
++                        <option value="origin/mergeEm" />
++>>>>>>> Stashed changes
++                      </list>
++                    </value>
++                  </entry>
++                </map>
++              </option>
++            </State>
++          </value>
++        </entry>
++      </map>
++    </option>
++  </component>
++  <component name="VgoProject">
++    <settings-migrated>true</settings-migrated>
++  </component>
++</project>
+\ No newline at end of file
+Index: go.mod
+IDEA additional info:
+Subsystem: com.intellij.openapi.diff.impl.patch.BaseRevisionTextPatchEP
+<+>module github.com/authzed/spicedb\r\n\r\ngo 1.18\r\n\r\nrequire (\r\n\tcloud.google.com/go/spanner v1.31.0\r\n\tgithub.com/Masterminds/squirrel v1.5.2\r\n\tgithub.com/authzed/authzed-go v0.5.1-0.20220428172639-fe11c14e32af\r\n\tgithub.com/authzed/grpcutil v0.0.0-20220104222419-f813f77722e5\r\n\tgithub.com/aws/aws-sdk-go v1.44.7\r\n\tgithub.com/benbjohnson/clock v1.3.0\r\n\tgithub.com/cenkalti/backoff/v4 v4.1.3\r\n\tgithub.com/cespare/xxhash/v2 v2.1.2\r\n\tgithub.com/dalzilio/rudd v1.1.1-0.20220422201445-0a0cd32c7df9\r\n\tgithub.com/dgraph-io/ristretto v0.1.0\r\n\tgithub.com/dlmiddlecote/sqlstats v1.0.2\r\n\tgithub.com/dustin/go-humanize v1.0.0\r\n\tgithub.com/ecordell/optgen v0.0.6\r\n\tgithub.com/emirpasic/gods v1.18.1\r\n\tgithub.com/envoyproxy/protoc-gen-validate v0.6.7\r\n\tgithub.com/fatih/color v1.13.0\r\n\tgithub.com/go-co-op/gocron v1.13.0\r\n\tgithub.com/go-sql-driver/mysql v1.6.0\r\n\tgithub.com/gogo/protobuf v1.3.2\r\n\tgithub.com/golang/snappy v0.0.4\r\n\tgithub.com/google/go-cmp v0.5.8\r\n\tgithub.com/google/go-github/v43 v43.0.0\r\n\tgithub.com/google/uuid v1.3.0\r\n\tgithub.com/grpc-ecosystem/go-grpc-middleware v1.3.0\r\n\tgithub.com/grpc-ecosystem/go-grpc-middleware/providers/zerolog/v2 v2.0.0-rc.2.0.20210831071041-dd1540ef8252\r\n\tgithub.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.0-rc.2.0.20210831071041-dd1540ef8252\r\n\tgithub.com/grpc-ecosystem/go-grpc-prometheus v1.2.0\r\n\tgithub.com/grpc-ecosystem/grpc-gateway/v2 v2.10.0\r\n\tgithub.com/hashicorp/go-memdb v1.3.3\r\n\tgithub.com/influxdata/tdigest v0.0.1\r\n\tgithub.com/jackc/pgconn v1.12.0\r\n\tgithub.com/jackc/pgtype v1.11.0\r\n\tgithub.com/jackc/pgx/v4 v4.16.0\r\n\tgithub.com/johannesboyne/gofakes3 v0.0.0-20220314170512-33c13122505e\r\n\tgithub.com/jwangsadinata/go-multimap v0.0.0-20190620162914-c29f3d7f33b6\r\n\tgithub.com/jzelinskie/cobrautil v0.0.12\r\n\tgithub.com/jzelinskie/stringz v0.0.1\r\n\tgithub.com/lib/pq v1.10.5\r\n\tgithub.com/ngrok/sqlmw v0.0.0-20211220175533-9d16fdc47b31\r\n\tgithub.com/ory/dockertest/v3 v3.8.2-0.20220414165644-e38b9742dc7d\r\n\tgithub.com/prometheus/client_golang v1.12.1\r\n\tgithub.com/prometheus/client_model v0.2.0\r\n\tgithub.com/prometheus/common v0.34.0\r\n\tgithub.com/rs/cors v1.8.2\r\n\tgithub.com/rs/zerolog v1.26.1\r\n\tgithub.com/scylladb/go-set v1.0.2\r\n\tgithub.com/sercand/kuberesolver/v3 v3.1.0\r\n\tgithub.com/shopspring/decimal v1.3.1\r\n\tgithub.com/spf13/cobra v1.4.0\r\n\tgithub.com/spf13/pflag v1.0.5\r\n\tgithub.com/stretchr/testify v1.7.1\r\n\tgo.buf.build/protocolbuffers/go/prometheus/prometheus v1.2.3\r\n\tgo.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.32.0\r\n\tgo.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.32.0\r\n\tgo.opentelemetry.io/otel v1.7.0\r\n\tgo.opentelemetry.io/otel/trace v1.7.0\r\n\tgo.uber.org/goleak v1.1.12\r\n\tgolang.org/x/mod v0.6.0-dev.0.20220106191415-9b9b3d81d5e3\r\n\tgolang.org/x/sync v0.0.0-20210220032951-036812b2e83c\r\n\tgolang.org/x/tools v0.1.10\r\n\tgoogle.golang.org/api v0.78.0\r\n\tgoogle.golang.org/genproto v0.0.0-20220504150022-98cd25cafc72\r\n\tgoogle.golang.org/grpc v1.46.0\r\n\tgoogle.golang.org/protobuf v1.28.0\r\n\tgopkg.in/yaml.v2 v2.4.0\r\n\tgopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b\r\n\tmvdan.cc/gofumpt v0.3.1\r\n)\r\n\r\nrequire (\r\n\tcloud.google.com/go v0.101.1 // indirect\r\n\tcloud.google.com/go/compute v1.6.1 // indirect\r\n\tgithub.com/Azure/go-ansiterm v0.0.0-20210617225240-d185dfc1b5a1 // indirect\r\n\tgithub.com/Microsoft/go-winio v0.5.2 // indirect\r\n\tgithub.com/Nvveen/Gotty v0.0.0-20120604004816-cd527374f1e5 // indirect\r\n\tgithub.com/beorn7/perks v1.0.1 // indirect\r\n\tgithub.com/census-instrumentation/opencensus-proto v0.3.0 // indirect\r\n\tgithub.com/certifi/gocertifi v0.0.0-20210507211836-431795d63e8d // indirect\r\n\tgithub.com/cncf/udpa/go v0.0.0-20220112060539-c52dc94e7fbe // indirect\r\n\tgithub.com/cncf/xds/go v0.0.0-20220330162227-eded343319d0 // indirect\r\n\tgithub.com/containerd/continuity v0.3.0 // indirect\r\n\tgithub.com/dave/jennifer v1.5.0 // indirect\r\n\tgithub.com/davecgh/go-spew v1.1.1 // indirect\r\n\tgithub.com/docker/cli v20.10.14+incompatible // indirect\r\n\tgithub.com/docker/docker v20.10.14+incompatible // indirect\r\n\tgithub.com/docker/go-connections v0.4.0 // indirect\r\n\tgithub.com/docker/go-units v0.4.0 // indirect\r\n\tgithub.com/envoyproxy/go-control-plane v0.10.2-0.20220325020618-49ff273808a1 // indirect\r\n\tgithub.com/felixge/httpsnoop v1.0.2 // indirect\r\n\tgithub.com/fsnotify/fsnotify v1.5.4 // indirect\r\n\tgithub.com/go-logr/logr v1.2.3 // indirect\r\n\tgithub.com/go-logr/stdr v1.2.2 // indirect\r\n\tgithub.com/golang/glog v1.0.0 // indirect\r\n\tgithub.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect\r\n\tgithub.com/golang/protobuf v1.5.2 // indirect\r\n\tgithub.com/google/go-querystring v1.1.0 // indirect\r\n\tgithub.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect\r\n\tgithub.com/googleapis/gax-go/v2 v2.3.0 // indirect\r\n\tgithub.com/hashicorp/go-immutable-radix v1.3.1 // indirect\r\n\tgithub.com/hashicorp/go-uuid v1.0.1 // indirect\r\n\tgithub.com/hashicorp/golang-lru v0.5.4 // indirect\r\n\tgithub.com/hashicorp/hcl v1.0.0 // indirect\r\n\tgithub.com/imdario/mergo v0.3.12 // indirect\r\n\tgithub.com/inconshreveable/mousetrap v1.0.0 // indirect\r\n\tgithub.com/jackc/chunkreader/v2 v2.0.1 // indirect\r\n\tgithub.com/jackc/pgio v1.0.0 // indirect\r\n\tgithub.com/jackc/pgpassfile v1.0.0 // indirect\r\n\tgithub.com/jackc/pgproto3/v2 v2.3.0 // indirect\r\n\tgithub.com/jackc/pgservicefile v0.0.0-20200714003250-2b9c44734f2b // indirect\r\n\tgithub.com/jackc/puddle v1.2.1 // indirect\r\n\tgithub.com/jmespath/go-jmespath v0.4.0 // indirect\r\n\tgithub.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect\r\n\tgithub.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect\r\n\tgithub.com/magiconair/properties v1.8.6 // indirect\r\n\tgithub.com/mattn/go-colorable v0.1.12 // indirect\r\n\tgithub.com/mattn/go-isatty v0.0.14 // indirect\r\n\tgithub.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect\r\n\tgithub.com/mitchellh/mapstructure v1.5.0 // indirect\r\n\tgithub.com/moby/term v0.0.0-20210619224110-3f7ff695adc6 // indirect\r\n\tgithub.com/opencontainers/go-digest v1.0.0 // indirect\r\n\tgithub.com/opencontainers/image-spec v1.0.2 // indirect\r\n\tgithub.com/opencontainers/runc v1.1.1 // indirect\r\n\tgithub.com/pelletier/go-toml v1.9.5 // indirect\r\n\tgithub.com/pelletier/go-toml/v2 v2.0.0 // indirect\r\n\tgithub.com/pkg/errors v0.9.1 // indirect\r\n\tgithub.com/pmezard/go-difflib v1.0.0 // indirect\r\n\tgithub.com/prometheus/procfs v0.7.3 // indirect\r\n\tgithub.com/robfig/cron/v3 v3.0.1 // indirect\r\n\tgithub.com/ryszard/goskiplist v0.0.0-20150312221310-2dfbae5fcf46 // indirect\r\n\tgithub.com/shabbyrobe/gocovmerge v0.0.0-20190829150210-3e036491d500 // indirect\r\n\tgithub.com/sirupsen/logrus v1.8.1 // indirect\r\n\tgithub.com/spf13/afero v1.8.2 // indirect\r\n\tgithub.com/spf13/cast v1.4.1 // indirect\r\n\tgithub.com/spf13/jwalterweatherman v1.1.0 // indirect\r\n\tgithub.com/spf13/viper v1.11.0 // indirect\r\n\tgithub.com/stretchr/objx v0.3.0 // indirect\r\n\tgithub.com/subosito/gotenv v1.2.0 // indirect\r\n\tgithub.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect\r\n\tgithub.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect\r\n\tgithub.com/xeipuuv/gojsonschema v1.2.0 // indirect\r\n\tgo.buf.build/protocolbuffers/go/gogo/protobuf v1.2.9 // indirect\r\n\tgo.opencensus.io v0.23.0 // indirect\r\n\tgo.opentelemetry.io/contrib/propagators/b3 v1.7.0 // indirect\r\n\tgo.opentelemetry.io/contrib/propagators/ot v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/exporters/jaeger v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/exporters/otlp/internal/retry v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/exporters/otlp/otlptrace v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.7.0 // indirect\r\n\tgo.opentelemetry.io/otel/metric v0.30.0 // indirect\r\n\tgo.opentelemetry.io/otel/sdk v1.7.0 // indirect\r\n\tgo.opentelemetry.io/proto/otlp v0.16.0 // indirect\r\n\tgo.uber.org/atomic v1.9.0 // indirect\r\n\tgo.uber.org/multierr v1.8.0 // indirect\r\n\tgolang.org/x/crypto v0.0.0-20220427172511-eb4f295cb31f // indirect\r\n\tgolang.org/x/net v0.0.0-20220425223048-2871e0cb64e4 // indirect\r\n\tgolang.org/x/oauth2 v0.0.0-20220411215720-9780585627b5 // indirect\r\n\tgolang.org/x/sys v0.0.0-20220503163025-988cb79eb6c6 // indirect\r\n\tgolang.org/x/text v0.3.7 // indirect\r\n\tgolang.org/x/xerrors v0.0.0-20220411194840-2f41105eb62f // indirect\r\n\tgoogle.golang.org/appengine v1.6.7 // indirect\r\n\tgopkg.in/ini.v1 v1.66.4 // indirect\r\n)\r\n\r\n// TODO(jschorr): Remove once https://github.com/dgraph-io/ristretto/pull/286 is merged\r\nreplace github.com/dgraph-io/ristretto => github.com/josephschorr/ristretto v0.1.1-0.20211227180020-ae4c2c35d79d\r\n
+Subsystem: com.intellij.openapi.diff.impl.patch.CharsetEP
+<+>UTF-8
+===================================================================
+diff --git a/go.mod b/go.mod
+--- a/go.mod	(revision 2dfe020e9f87e6ca44fe51c9b8a14e0ae983f1e6)
++++ b/go.mod	(date 1654628390968)
+@@ -40,7 +40,6 @@
+ 	github.com/jwangsadinata/go-multimap v0.0.0-20190620162914-c29f3d7f33b6
+ 	github.com/jzelinskie/cobrautil v0.0.12
+ 	github.com/jzelinskie/stringz v0.0.1
+-	github.com/lib/pq v1.10.5
+ 	github.com/ngrok/sqlmw v0.0.0-20211220175533-9d16fdc47b31
+ 	github.com/ory/dockertest/v3 v3.8.2-0.20220414165644-e38b9742dc7d
+ 	github.com/prometheus/client_golang v1.12.1
+@@ -116,6 +115,7 @@
+ 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+ 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
+ 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
++	github.com/lib/pq v1.10.5 // indirect
+ 	github.com/magiconair/properties v1.8.6 // indirect
+ 	github.com/mattn/go-colorable v0.1.12 // indirect
+ 	github.com/mattn/go-isatty v0.0.14 // indirect

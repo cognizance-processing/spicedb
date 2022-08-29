@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"github.com/authzed/spicedb/pkg/cmd/testserver"
 	"math/rand"
 	"os"
 	"time"
@@ -16,7 +17,6 @@ import (
 	consistentbalancer "github.com/authzed/spicedb/pkg/balancer"
 	"github.com/authzed/spicedb/pkg/cmd"
 	cmdutil "github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
 )
 
 const (
@@ -77,6 +77,7 @@ func main() {
 	testingCmd := cmd.NewTestingCommand(rootCmd.Use, &testServerConfig)
 	cmd.RegisterTestingFlags(testingCmd, &testServerConfig)
 	rootCmd.AddCommand(testingCmd)
+
 	if err := rootCmd.Execute(); err != nil {
 		if !errors.Is(err, errParsing) {
 			log.Err(err).Msg("terminated with errors")

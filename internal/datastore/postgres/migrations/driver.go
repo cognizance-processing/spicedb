@@ -4,12 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgx/v4"
 	"github.com/lib/pq"
-
 	"github.com/authzed/spicedb/pkg/migrate"
+	"os"
 )
 
 const errUnableToInstantiate = "unable to instantiate AlembicPostgresDriver: %w"
@@ -26,12 +25,18 @@ type AlembicPostgresDriver struct {
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
-	connectStr, err := pq.ParseURL(url)
-	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
+	socketDir, isSet := os.LookupEnv("DB_SOCKET_DIR")
+	if !isSet {
+		socketDir = "/cloudsql"
 	}
+	url = fmt.Sprintf("user=%s password=%s database=%s host=%s/%s", "new", "Happy456", "postgres", socketDir, "cog-analytics-backend:us-central1:authz-store")
 
-	db, err := pgx.Connect(context.Background(), connectStr)
+	//connectStr, err := pq.ParseURL(url)
+	/*	if err != nil {
+		return nil, fmt.Errorf(errUnableToInstantiate, err)
+	}*/
+
+	db, err := pgx.Connect(context.Background(), url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}

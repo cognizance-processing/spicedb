@@ -14,7 +14,6 @@ import (
 )
 
 var _ common.GarbageCollector = (*pgDatastore)(nil)
-
 func (pgd *pgDatastore) Now(ctx context.Context) (time.Time, error) {
 	// Retrieve the `now` time from the database.
 	nowSQL, nowArgs, err := getNow.ToSql()

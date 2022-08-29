@@ -2,20 +2,16 @@ package cmd
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 // SignalContextWithGracePeriod creates a new context that will be cancelled
 // when an interrupt/SIGTERM signal is received and the provided grace period
 // subsequently finishes.
 func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration) context.Context {
-	newCtx, cancelfn := context.WithCancel(ctx)
-	go func() {
+
+	newCtx, _ := context.WithCancel(ctx)
+	/*go func() {
 		signalctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		<-signalctx.Done()
 		log.Info().Msg("received interrupt")
@@ -34,7 +30,6 @@ func SignalContextWithGracePeriod(ctx context.Context, gracePeriod time.Duration
 		}
 		log.Info().Msg("shutting down")
 		cancelfn()
-	}()
-
+	}()*/
 	return newCtx
 }

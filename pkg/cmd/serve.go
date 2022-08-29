@@ -71,8 +71,8 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) {
 	cmd.Flags().BoolVar(&config.DisableVersionResponse, "disable-version-response", false, "disables version response support in the API")
 
 	// Flags for misc services
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", true)
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", true)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", false)
+	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", false)
 
 	// Flags for telemetry
 	cmd.Flags().StringVar(&config.TelemetryEndpoint, "telemetry-endpoint", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
@@ -87,16 +87,16 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 		Long:    "A database that stores, computes, and validates application permissions",
 		PreRunE: server.DefaultPreRunE(programName),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			server, err := config.Complete()
-			if err != nil {
-				return err
-			}
 			signalctx := SignalContextWithGracePeriod(
 				context.Background(),
 				config.ShutdownGracePeriod,
 			)
+			server, err := config.Complete()
+			if err != nil {
+				return err
+			}
 			return server.Run(signalctx)
 		},
-		Example: server.ServeExample(programName),
+		//Example: server.ServeExample(programName),
 	}
 }
