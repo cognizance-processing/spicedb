@@ -122,6 +122,7 @@ spec:
             periodSeconds: 10
             successThreshold: 1
             timeoutSeconds: 20
+            initialDelaySeconds: 5
           resources:
               requests:
                 memory: "4Gi"
