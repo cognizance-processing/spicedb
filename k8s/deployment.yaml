@@ -127,7 +127,7 @@ spec:
                 memory: "4Gi"
                 cpu:    "2"
         - name: cloud-sql-proxy
-          image: gcr.io/cloudsql-docker/gce-proxy:1.31.0
+          image: gcr.io/cloudsql-docker/gce-proxy:2.1.2
           command:
             - "/cloud_sql_proxy"
             - "-log_debug_stdout"
