@@ -124,8 +124,8 @@ spec:
             timeoutSeconds: 20
           resources:
               requests:
-                memory: "2Gi"
-                cpu:    "1"
+                memory: "4Gi"
+                cpu:    "2"
         - name: cloud-sql-proxy
           image: gcr.io/cloudsql-docker/gce-proxy:1.31.0
           command:
@@ -138,6 +138,6 @@ spec:
             runAsNonRoot: true
           resources:
             requests:
-              memory: "2Gi"
-              cpu:    "1"
+              memory: "4Gi"
+              cpu:    "2"
 
