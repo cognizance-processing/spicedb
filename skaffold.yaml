@@ -1,11 +1,10 @@
-apiVersion: skaffold/v2beta28
+apiVersion: skaffold/v4beta4
 kind: Config
 metadata:
   name: spicedb
+manifests:
+  rawYaml:
+    - k8s/*.yaml
 deploy:
+  kubectl: {}
   statusCheckDeadlineSeconds: 300
-  kubectl:
-    manifests:
-      - k8s/*.yaml
-
-    
