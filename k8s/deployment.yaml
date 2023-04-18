@@ -115,6 +115,13 @@ spec:
               containerPort: 9090
               # hostPort: 9090
               protocol: "TCP"
+          livenessProbe:
+            exec:
+              command: ["grpc_health_probe", "-v", "-addr=localhost:50051"]
+            failureThreshold: 3
+            periodSeconds: 5
+            successThreshold: 1
+            initialDelaySeconds: 5
           readinessProbe:
             exec:
               command: ["grpc_health_probe", "-v", "-addr=localhost:50051"]
