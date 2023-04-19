@@ -1,5 +1,5 @@
-//go:build docker
-// +build docker
+//go:build docker && image
+// +build docker,image
 
 package main
 
@@ -14,6 +14,7 @@ import (
 )
 
 func TestRESTGateway(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 
 	tester, err := newTester(t,
@@ -24,6 +25,7 @@ func TestRESTGateway(t *testing.T) {
 			ExposedPorts: []string{"50051/tcp", "8443/tcp"},
 		},
 		"somerandomkeyhere",
+		false,
 	)
 	require.NoError(err)
 	defer tester.cleanup()

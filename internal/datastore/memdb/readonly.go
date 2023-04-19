@@ -5,13 +5,11 @@ import (
 	"fmt"
 	"runtime"
 
-	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/hashicorp/go-memdb"
 	"github.com/jzelinskie/stringz"
-	"google.golang.org/protobuf/proto"
 
-	"github.com/authzed/spicedb/internal/datastore/options"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/options"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
@@ -20,21 +18,20 @@ type txFactory func() (*memdb.Txn, error)
 type memdbReader struct {
 	TryLocker
 	txSource txFactory
-	revision datastore.Revision
 	initErr  error
 }
 
 // QueryRelationships reads relationships starting from the resource side.
 func (r *memdbReader) QueryRelationships(
-	ctx context.Context,
-	filter *v1.RelationshipFilter,
+	_ context.Context,
+	filter datastore.RelationshipsFilter,
 	opts ...options.QueryOptionsOption,
 ) (datastore.RelationshipIterator, error) {
 	if r.initErr != nil {
 		return nil, r.initErr
 	}
 
-	r.lockOrPanic()
+	r.mustLock()
 	defer r.Unlock()
 
 	tx, err := r.txSource()
@@ -49,33 +46,34 @@ func (r *memdbReader) QueryRelationships(
 		return nil, err
 	}
 
+	if queryOpts.After != nil && queryOpts.Sort == options.Unsorted {
+		return nil, datastore.ErrCursorsWithoutSorting
+	}
+
 	matchingRelationshipsFilterFunc := filterFuncForFilters(
 		filter.ResourceType,
-		filter.OptionalResourceId,
-		filter.OptionalRelation,
-		filter.OptionalSubjectFilter,
-		nil,
+		filter.OptionalResourceIds,
+		filter.OptionalResourceRelation,
+		filter.OptionalSubjectsSelectors,
+		filter.OptionalCaveatName,
 		queryOpts.Usersets,
+		makeCursorFilterFn(queryOpts.After, queryOpts.Sort),
 	)
 	filteredIterator := memdb.NewFilterIterator(bestIterator, matchingRelationshipsFilterFunc)
 
-	iter := &memdbTupleIterator{
-		it:    filteredIterator,
-		limit: queryOpts.Limit,
-	}
-
-	runtime.SetFinalizer(iter, func(iter *memdbTupleIterator) {
-		if !iter.closed {
-			panic("Tuple iterator garbage collected before Close() was called")
-		}
-	})
-
+	iter := newMemdbTupleIterator(filteredIterator, queryOpts.Limit, queryOpts.Sort)
 	return iter, nil
+}
+
+func mustHaveBeenClosed(iter *memdbTupleIterator) {
+	if !iter.closed {
+		panic("Tuple iterator garbage collected before Close() was called")
+	}
 }
 
 // ReverseQueryRelationships reads relationships starting from the subject.
 func (r *memdbReader) ReverseQueryRelationships(
-	ctx context.Context,
+	_ context.Context,
 	subjectsFilter datastore.SubjectsFilter,
 	opts ...options.ReverseQueryOptionsOption,
 ) (datastore.RelationshipIterator, error) {
@@ -83,7 +81,7 @@ func (r *memdbReader) ReverseQueryRelationships(
 		return nil, r.initErr
 	}
 
-	r.lockOrPanic()
+	r.mustLock()
 	defer r.Unlock()
 
 	tx, err := r.txSource()
@@ -110,36 +108,26 @@ func (r *memdbReader) ReverseQueryRelationships(
 
 	matchingRelationshipsFilterFunc := filterFuncForFilters(
 		filterObjectType,
-		"",
+		nil,
 		filterRelation,
+		[]datastore.SubjectsSelector{subjectsFilter.AsSelector()},
+		"",
 		nil,
-		&subjectsFilter,
-		nil,
+		noopCursorFilter,
 	)
 	filteredIterator := memdb.NewFilterIterator(iterator, matchingRelationshipsFilterFunc)
 
-	iter := &memdbTupleIterator{
-		it:    filteredIterator,
-		limit: queryOpts.ReverseLimit,
-	}
-
-	runtime.SetFinalizer(iter, func(iter *memdbTupleIterator) {
-		if !iter.closed {
-			panic("Tuple iterator garbage collected before Close() was called")
-		}
-	})
-
-	return iter, nil
+	return newMemdbTupleIterator(filteredIterator, queryOpts.ReverseLimit, options.Unsorted), nil
 }
 
 // ReadNamespace reads a namespace definition and version and returns it, and the revision at
 // which it was created or last written, if found.
-func (r *memdbReader) ReadNamespace(ctx context.Context, nsName string) (ns *core.NamespaceDefinition, lastWritten datastore.Revision, err error) {
+func (r *memdbReader) ReadNamespaceByName(_ context.Context, nsName string) (ns *core.NamespaceDefinition, lastWritten datastore.Revision, err error) {
 	if r.initErr != nil {
 		return nil, datastore.NoRevision, r.initErr
 	}
 
-	r.lockOrPanic()
+	r.mustLock()
 	defer r.Unlock()
 
 	tx, err := r.txSource()
@@ -158,21 +146,21 @@ func (r *memdbReader) ReadNamespace(ctx context.Context, nsName string) (ns *cor
 
 	found := foundRaw.(*namespace)
 
-	var loaded core.NamespaceDefinition
-	if err := proto.Unmarshal(found.configBytes, &loaded); err != nil {
+	loaded := &core.NamespaceDefinition{}
+	if err := loaded.UnmarshalVT(found.configBytes); err != nil {
 		return nil, datastore.NoRevision, err
 	}
 
-	return &loaded, found.updated, nil
+	return loaded, found.updated, nil
 }
 
 // ListNamespaces lists all namespaces defined.
-func (r *memdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefinition, error) {
+func (r *memdbReader) ListAllNamespaces(_ context.Context) ([]datastore.RevisionedNamespace, error) {
 	if r.initErr != nil {
 		return nil, r.initErr
 	}
 
-	r.lockOrPanic()
+	r.mustLock()
 	defer r.Unlock()
 
 	tx, err := r.txSource()
@@ -180,7 +168,7 @@ func (r *memdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefi
 		return nil, err
 	}
 
-	var nsDefs []*core.NamespaceDefinition
+	var nsDefs []datastore.RevisionedNamespace
 
 	it, err := tx.LowerBound(tableNamespace, indexID)
 	if err != nil {
@@ -189,50 +177,84 @@ func (r *memdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefi
 
 	for foundRaw := it.Next(); foundRaw != nil; foundRaw = it.Next() {
 		found := foundRaw.(*namespace)
-		var loaded core.NamespaceDefinition
-		if err := proto.Unmarshal(found.configBytes, &loaded); err != nil {
+
+		loaded := &core.NamespaceDefinition{}
+		if err := loaded.UnmarshalVT(found.configBytes); err != nil {
 			return nil, err
 		}
 
-		nsDefs = append(nsDefs, &loaded)
+		nsDefs = append(nsDefs, datastore.RevisionedNamespace{
+			Definition:          loaded,
+			LastWrittenRevision: found.updated,
+		})
 	}
 
 	return nsDefs, nil
 }
 
-func (r *memdbReader) lockOrPanic() {
+func (r *memdbReader) LookupNamespacesWithNames(_ context.Context, nsNames []string) ([]datastore.RevisionedNamespace, error) {
+	if r.initErr != nil {
+		return nil, r.initErr
+	}
+
+	if len(nsNames) == 0 {
+		return nil, nil
+	}
+
+	r.mustLock()
+	defer r.Unlock()
+
+	tx, err := r.txSource()
+	if err != nil {
+		return nil, err
+	}
+
+	it, err := tx.LowerBound(tableNamespace, indexID)
+	if err != nil {
+		return nil, err
+	}
+
+	nsNameMap := make(map[string]struct{}, len(nsNames))
+	for _, nsName := range nsNames {
+		nsNameMap[nsName] = struct{}{}
+	}
+
+	nsDefs := make([]datastore.RevisionedNamespace, 0, len(nsNames))
+
+	for foundRaw := it.Next(); foundRaw != nil; foundRaw = it.Next() {
+		found := foundRaw.(*namespace)
+
+		loaded := &core.NamespaceDefinition{}
+		if err := loaded.UnmarshalVT(found.configBytes); err != nil {
+			return nil, err
+		}
+
+		if _, ok := nsNameMap[loaded.Name]; ok {
+			nsDefs = append(nsDefs, datastore.RevisionedNamespace{
+				Definition:          loaded,
+				LastWrittenRevision: found.updated,
+			})
+		}
+	}
+
+	return nsDefs, nil
+}
+
+func (r *memdbReader) mustLock() {
 	if !r.TryLock() {
 		panic("detected concurrent use of ReadWriteTransaction")
 	}
 }
 
-func iteratorForFilter(txn *memdb.Txn, filter *v1.RelationshipFilter) (memdb.ResultIterator, error) {
-	switch {
-	case filter.OptionalResourceId != "":
-		return txn.Get(
-			tableRelationship,
-			indexNamespaceAndResourceID,
-			filter.ResourceType,
-			filter.OptionalResourceId,
-		)
-	case filter.OptionalSubjectFilter != nil && filter.OptionalSubjectFilter.OptionalSubjectId != "":
-		return txn.Get(
-			tableRelationship,
-			indexNamespaceAndSubjectID,
-			filter.ResourceType,
-			filter.OptionalSubjectFilter.SubjectType,
-			filter.OptionalSubjectFilter.OptionalSubjectId,
-		)
-	case filter.OptionalRelation != "":
-		return txn.Get(
-			tableRelationship,
-			indexNamespaceAndRelation,
-			filter.ResourceType,
-			filter.OptionalRelation,
-		)
+func iteratorForFilter(txn *memdb.Txn, filter datastore.RelationshipsFilter) (memdb.ResultIterator, error) {
+	index := indexNamespace
+	args := []any{filter.ResourceType}
+	if filter.OptionalResourceRelation != "" {
+		args = append(args, filter.OptionalResourceRelation)
+		index = indexNamespaceAndRelation
 	}
 
-	iter, err := txn.Get(tableRelationship, indexNamespace, filter.ResourceType)
+	iter, err := txn.Get(tableRelationship, index, args...)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get iterator for filter: %w", err)
 	}
@@ -240,49 +262,63 @@ func iteratorForFilter(txn *memdb.Txn, filter *v1.RelationshipFilter) (memdb.Res
 	return iter, err
 }
 
-func filterFuncForFilters(optionalObjectType, optionalObjectID, optionalRelation string,
-	optionalSubjectFilter *v1.SubjectFilter, optionalSubjectsFilter *datastore.SubjectsFilter,
+func filterFuncForFilters(
+	optionalResourceType string,
+	optionalResourceIds []string,
+	optionalRelation string,
+	optionalSubjectsSelectors []datastore.SubjectsSelector,
+	optionalCaveatFilter string,
 	usersets []*core.ObjectAndRelation,
+	cursorFilter func(*relationship) bool,
 ) memdb.FilterFunc {
 	return func(tupleRaw interface{}) bool {
 		tuple := tupleRaw.(*relationship)
 
 		switch {
-		case optionalObjectType != "" && optionalObjectType != tuple.namespace:
+		case optionalResourceType != "" && optionalResourceType != tuple.namespace:
 			return true
-		case optionalObjectID != "" && optionalObjectID != tuple.resourceID:
+		case len(optionalResourceIds) > 0 && !stringz.SliceContains(optionalResourceIds, tuple.resourceID):
 			return true
 		case optionalRelation != "" && optionalRelation != tuple.relation:
 			return true
+		case optionalCaveatFilter != "" && (tuple.caveat == nil || tuple.caveat.caveatName != optionalCaveatFilter):
+			return true
 		}
 
-		if optionalSubjectFilter != nil {
+		applySubjectSelector := func(selector datastore.SubjectsSelector) bool {
 			switch {
-			case optionalSubjectFilter.SubjectType != tuple.subjectNamespace:
-				return true
-			case optionalSubjectFilter.OptionalSubjectId != "" && optionalSubjectFilter.OptionalSubjectId != tuple.subjectObjectID:
-				return true
-			case optionalSubjectFilter.OptionalRelation != nil && stringz.DefaultEmpty(optionalSubjectFilter.OptionalRelation.Relation, datastore.Ellipsis) != tuple.subjectRelation:
-				return true
+			case len(selector.OptionalSubjectType) > 0 && selector.OptionalSubjectType != tuple.subjectNamespace:
+				return false
+			case len(selector.OptionalSubjectIds) > 0 && !stringz.SliceContains(selector.OptionalSubjectIds, tuple.subjectObjectID):
+				return false
 			}
-		}
 
-		if optionalSubjectsFilter != nil {
+			if selector.RelationFilter.OnlyNonEllipsisRelations {
+				return tuple.subjectRelation != datastore.Ellipsis
+			}
+
 			relations := make([]string, 0, 2)
-			if optionalSubjectsFilter.RelationFilter.IncludeEllipsisRelation {
+			if selector.RelationFilter.IncludeEllipsisRelation {
 				relations = append(relations, datastore.Ellipsis)
 			}
 
-			if optionalSubjectsFilter.RelationFilter.NonEllipsisRelation != "" {
-				relations = append(relations, optionalSubjectsFilter.RelationFilter.NonEllipsisRelation)
+			if selector.RelationFilter.NonEllipsisRelation != "" {
+				relations = append(relations, selector.RelationFilter.NonEllipsisRelation)
 			}
 
-			switch {
-			case optionalSubjectsFilter.SubjectType != tuple.subjectNamespace:
-				return true
-			case len(optionalSubjectsFilter.SubjectIds) > 0 && !stringz.SliceContains(optionalSubjectsFilter.SubjectIds, tuple.subjectObjectID):
-				return true
-			case len(relations) > 0 && !stringz.SliceContains(relations, tuple.subjectRelation):
+			return len(relations) == 0 || stringz.SliceContains(relations, tuple.subjectRelation)
+		}
+
+		if len(optionalSubjectsSelectors) > 0 {
+			hasMatchingSelector := false
+			for _, selector := range optionalSubjectsSelectors {
+				if applySubjectSelector(selector) {
+					hasMatchingSelector = true
+					break
+				}
+			}
+
+			if !hasMatchingSelector {
 				return true
 			}
 		}
@@ -300,8 +336,43 @@ func filterFuncForFilters(optionalObjectType, optionalObjectID, optionalRelation
 			return !found
 		}
 
-		return false
+		return cursorFilter(tuple)
 	}
+}
+
+func makeCursorFilterFn(after *core.RelationTuple, order options.SortOrder) func(tpl *relationship) bool {
+	if after != nil {
+		switch order {
+		case options.ByResource:
+			return func(tpl *relationship) bool {
+				return less(tpl.namespace, tpl.resourceID, tpl.relation, after.ResourceAndRelation) ||
+					(eq(tpl.namespace, tpl.resourceID, tpl.relation, after.ResourceAndRelation) &&
+						(less(tpl.subjectNamespace, tpl.subjectObjectID, tpl.subjectRelation, after.Subject) ||
+							eq(tpl.subjectNamespace, tpl.subjectObjectID, tpl.subjectRelation, after.Subject)))
+			}
+		}
+	}
+	return noopCursorFilter
+}
+
+func noopCursorFilter(_ *relationship) bool {
+	return false
+}
+
+func less(lhsNamespace, lhsObjectID, lhsRelation string, rhs *core.ObjectAndRelation) bool {
+	return lhsNamespace < rhs.Namespace ||
+		(lhsNamespace == rhs.Namespace && lhsObjectID < rhs.ObjectId) ||
+		(lhsNamespace == rhs.Namespace && lhsObjectID == rhs.ObjectId && lhsRelation < rhs.Relation)
+}
+
+func eq(lhsNamespace, lhsObjectID, lhsRelation string, rhs *core.ObjectAndRelation) bool {
+	return lhsNamespace == rhs.Namespace && lhsObjectID == rhs.ObjectId && lhsRelation == rhs.Relation
+}
+
+func newMemdbTupleIterator(it memdb.ResultIterator, limit *uint64, order options.SortOrder) *memdbTupleIterator {
+	iter := &memdbTupleIterator{it: it, limit: limit, order: order}
+	runtime.SetFinalizer(iter, mustHaveBeenClosed)
+	return iter
 }
 
 type memdbTupleIterator struct {
@@ -309,9 +380,16 @@ type memdbTupleIterator struct {
 	it     memdb.ResultIterator
 	limit  *uint64
 	count  uint64
+	err    error
+	order  options.SortOrder
+	last   *core.RelationTuple
 }
 
 func (mti *memdbTupleIterator) Next() *core.RelationTuple {
+	if mti.closed {
+		return nil
+	}
+
 	foundRaw := mti.it.Next()
 	if foundRaw == nil {
 		return nil
@@ -322,15 +400,36 @@ func (mti *memdbTupleIterator) Next() *core.RelationTuple {
 	}
 	mti.count++
 
-	return foundRaw.(*relationship).RelationTuple()
+	rt, err := foundRaw.(*relationship).RelationTuple()
+	if err != nil {
+		mti.err = err
+		return nil
+	}
+
+	mti.last = rt
+	return rt
+}
+
+func (mti *memdbTupleIterator) Cursor() (options.Cursor, error) {
+	switch {
+	case mti.closed:
+		return nil, datastore.ErrClosedIterator
+	case mti.order == options.Unsorted:
+		return nil, datastore.ErrCursorsWithoutSorting
+	case mti.last == nil:
+		return nil, datastore.ErrCursorEmpty
+	default:
+		return mti.last, nil
+	}
 }
 
 func (mti *memdbTupleIterator) Err() error {
-	return nil
+	return mti.err
 }
 
 func (mti *memdbTupleIterator) Close() {
 	mti.closed = true
+	mti.err = datastore.ErrClosedIterator
 }
 
 var _ datastore.Reader = &memdbReader{}

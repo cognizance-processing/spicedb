@@ -8,6 +8,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
+
+	"google.golang.org/grpc/backoff"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/stretchr/testify/require"
@@ -17,7 +20,6 @@ import (
 
 	combineddispatch "github.com/authzed/spicedb/internal/dispatch/combined"
 	hashbalancer "github.com/authzed/spicedb/pkg/balancer"
-	"github.com/authzed/spicedb/pkg/cache"
 	"github.com/authzed/spicedb/pkg/cmd/server"
 	"github.com/authzed/spicedb/pkg/cmd/util"
 	"github.com/authzed/spicedb/pkg/datastore"
@@ -57,7 +59,9 @@ var testResolverBuilder = &SafeManualResolverBuilder{}
 
 func init() {
 	// register hashring balancer
-	balancer.Register(hashbalancer.NewConsistentHashringBuilder(xxhash.Sum64, 20, 1))
+	balancer.Register(hashbalancer.NewConsistentHashringBuilder(
+		hashbalancer.NewConsistentHashringPickerBuilder(xxhash.Sum64, 1500, 1)),
+	)
 
 	// Register a manual resolver.Builder  that we can feed addresses for tests
 	// Registration is not thread safe, so we register a single resolver.Builder
@@ -122,7 +126,7 @@ type SafeManualResolver struct {
 
 // ResolveNow implements the resolver.Resolver interface
 // It sends the static list of addresses to the underlying resolver.ClientConn
-func (r *SafeManualResolver) ResolveNow(options resolver.ResolveNowOptions) {
+func (r *SafeManualResolver) ResolveNow(_ resolver.ResolveNowOptions) {
 	if r.cc == nil {
 		return
 	}
@@ -137,11 +141,11 @@ func (r *SafeManualResolver) Close() {}
 // TestClusterWithDispatch creates a cluster with `size` nodes
 // The cluster has a real dispatch stack that uses bufconn grpc connections
 func TestClusterWithDispatch(t testing.TB, size uint, ds datastore.Datastore) ([]*grpc.ClientConn, func()) {
-	return TestClusterWithDispatchAndCacheConfig(t, size, ds, true)
+	return TestClusterWithDispatchAndCacheConfig(t, size, ds)
 }
 
 // TestClusterWithDispatchAndCacheConfig creates a cluster with `size` nodes and with cache toggled.
-func TestClusterWithDispatchAndCacheConfig(t testing.TB, size uint, ds datastore.Datastore, cacheEnabled bool) ([]*grpc.ClientConn, func()) {
+func TestClusterWithDispatchAndCacheConfig(t testing.TB, size uint, ds datastore.Datastore) ([]*grpc.ClientConn, func()) {
 	// each cluster gets a unique prefix since grpc resolution is process-global
 	prefix := getPrefix(t)
 
@@ -180,21 +184,16 @@ func TestClusterWithDispatchAndCacheConfig(t testing.TB, size uint, ds datastore
 				}),
 			),
 		}
-		if !cacheEnabled {
-			dispatcherOptions = append(dispatcherOptions, combineddispatch.CacheConfig(&cache.Config{
-				Disabled: true,
-			}))
-		}
 
-		dispatcher, err := combineddispatch.NewDispatcher(
-			dispatcherOptions...,
-		)
+		dispatcher, err := combineddispatch.NewDispatcher(dispatcherOptions...)
 		require.NoError(t, err)
 
 		serverOptions := []server.ConfigOption{
 			server.WithDatastore(ds),
 			server.WithDispatcher(dispatcher),
 			server.WithDispatchMaxDepth(50),
+			server.WithMaximumPreconditionCount(1000),
+			server.WithMaximumUpdatesPerWrite(1000),
 			server.WithGRPCServer(util.GRPCServerConfig{
 				Network: util.BufferedNetwork,
 				Enabled: true,
@@ -212,29 +211,27 @@ func TestClusterWithDispatchAndCacheConfig(t testing.TB, size uint, ds datastore
 			}),
 			server.WithDispatchClusterMetricsPrefix(fmt.Sprintf("%s_%d_dispatch", prefix, i)),
 		}
-		if !cacheEnabled {
-			serverOptions = append(serverOptions, server.WithDispatchCacheConfig(server.CacheConfig{
-				Disabled: true,
-			}))
-
-			serverOptions = append(serverOptions, server.WithClusterDispatchCacheConfig(server.CacheConfig{
-				Disabled: true,
-			}))
-		}
-
-		srv, err := server.NewConfigWithOptions(
-			serverOptions...,
-		).Complete()
-		require.NoError(t, err)
 
 		ctx, cancel := context.WithCancel(context.Background())
+		srv, err := server.NewConfigWithOptions(serverOptions...).Complete(ctx)
+		require.NoError(t, err)
+
 		go func() {
 			require.NoError(t, srv.Run(ctx))
 		}()
 		cancelFuncs = append(cancelFuncs, cancel)
 
 		dialers = append(dialers, srv.DispatchNetDialContext)
-		conn, err := srv.GRPCDialContext(ctx, grpc.WithBlock())
+		conn, err := srv.GRPCDialContext(ctx,
+			grpc.WithReturnConnectionError(),
+			grpc.WithBlock(),
+			grpc.WithConnectParams(grpc.ConnectParams{
+				Backoff: backoff.Config{
+					BaseDelay:  1 * time.Second,
+					Multiplier: 2,
+					MaxDelay:   15 * time.Second,
+				},
+			}))
 		require.NoError(t, err)
 		conns = append(conns, conn)
 	}

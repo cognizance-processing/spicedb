@@ -4,33 +4,31 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"time"
 
 	"cloud.google.com/go/spanner"
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc/codes"
 
+	log "github.com/authzed/spicedb/internal/logging"
 	"github.com/authzed/spicedb/pkg/datastore"
 )
 
-var queryRelationshipEstimate = fmt.Sprintf("SELECT SUM(%s) FROM %s", colCount, tableCounters)
+var (
+	queryRelationshipEstimate = fmt.Sprintf("SELECT SUM(%s) FROM %s", colCount, tableCounters)
+
+	rng = rand.NewSource(time.Now().UnixNano())
+)
 
 func (sd spannerDatastore) Statistics(ctx context.Context) (datastore.Stats, error) {
-	ctx, span := tracer.Start(ctx, "Statistics")
-	defer span.End()
-
-	idRows := sd.client.Single().Read(
+	var uniqueID string
+	if err := sd.client.Single().Read(
 		context.Background(),
 		tableMetadata,
 		spanner.AllKeys(),
 		[]string{colUniqueID},
-	)
-	idRow, err := idRows.Next()
-	if err != nil {
-		return datastore.Stats{}, fmt.Errorf("unable to read metadata table: %w", err)
-	}
-
-	var uniqueID string
-	if err := idRow.Columns(&uniqueID); err != nil {
+	).Do(func(r *spanner.Row) error {
+		return r.Columns(&uniqueID)
+	}); err != nil {
 		return datastore.Stats{}, fmt.Errorf("unable to read unique ID: %w", err)
 	}
 
@@ -38,7 +36,7 @@ func (sd spannerDatastore) Statistics(ctx context.Context) (datastore.Stats, err
 		ctx,
 		tableNamespace,
 		spanner.AllKeys(),
-		[]string{colNamespaceConfig},
+		[]string{colNamespaceConfig, colNamespaceTS},
 	)
 
 	allNamespaces, err := readAllNamespaces(iter)
@@ -46,22 +44,17 @@ func (sd spannerDatastore) Statistics(ctx context.Context) (datastore.Stats, err
 		return datastore.Stats{}, fmt.Errorf("unable to read namespaces: %w", err)
 	}
 
-	var estimate int64
-
-	countRows := sd.client.Single().Query(ctx, spanner.Statement{SQL: queryRelationshipEstimate})
-	countRow, err := countRows.Next()
-	if err != nil && spanner.ErrCode(err) != codes.NotFound {
+	var estimate spanner.NullInt64
+	if err := sd.client.Single().Query(ctx, spanner.Statement{SQL: queryRelationshipEstimate}).Do(func(r *spanner.Row) error {
+		return r.Columns(&estimate)
+	}); err != nil {
 		return datastore.Stats{}, fmt.Errorf("unable to read row counts: %w", err)
-	} else if err == nil {
-		if err := countRow.Columns(&estimate); err != nil {
-			return datastore.Stats{}, fmt.Errorf("unable to decode row count: %w", err)
-		}
 	}
 
 	return datastore.Stats{
 		UniqueID:                   uniqueID,
 		ObjectTypeStatistics:       datastore.ComputeObjectTypeStats(allNamespaces),
-		EstimatedRelationshipCount: uint64(estimate),
+		EstimatedRelationshipCount: uint64(estimate.Int64),
 	}, nil
 }
 
@@ -69,7 +62,7 @@ func updateCounter(ctx context.Context, rwt *spanner.ReadWriteTransaction, chang
 	newValue := change
 
 	counterID := make([]byte, 2)
-	_, err := rand.Read(counterID)
+	_, err := rand.New(rng).Read(counterID)
 	if err != nil {
 		return fmt.Errorf("unable to select random counter: %w", err)
 	}
@@ -88,7 +81,7 @@ func updateCounter(ctx context.Context, rwt *spanner.ReadWriteTransaction, chang
 		newValue += currentValue
 	}
 
-	log.Trace().
+	log.Ctx(ctx).Trace().
 		Bytes("counterID", counterID).
 		Int64("newValue", newValue).
 		Int64("change", change).

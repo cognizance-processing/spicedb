@@ -4,27 +4,23 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"runtime"
 
 	sq "github.com/Masterminds/squirrel"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/jackc/pgx/v4"
 	"github.com/jzelinskie/stringz"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-
-	"github.com/authzed/spicedb/internal/datastore/options"
 	"github.com/authzed/spicedb/pkg/datastore"
-)
-
-const (
-	errUnableToQueryTuples = "unable to query tuples: %w"
+	"github.com/authzed/spicedb/pkg/datastore/options"
+	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"github.com/authzed/spicedb/pkg/spiceerrors"
 )
 
 var (
+	// CaveatNameKey is a tracing attribute representing a caveat name
+	CaveatNameKey = attribute.Key("authzed.com/spicedb/sql/caveatName")
+
 	// ObjNamespaceNameKey is a tracing attribute representing the resource
 	// object type.
 	ObjNamespaceNameKey = attribute.Key("authzed.com/spicedb/sql/objNamespaceName")
@@ -53,15 +49,52 @@ var (
 	tracer = otel.Tracer("spicedb/internal/datastore/common")
 )
 
+// PaginationFilterType is an enumerator
+type PaginationFilterType uint8
+
+const (
+	// TupleComparison uses a comparison with a compound key,
+	// e.g. (namespace, object_id, relation) > ('ns', '123', 'viewer')
+	// which is not compatible with all datastores.
+	TupleComparison PaginationFilterType = iota
+
+	// SpannerCompatible comparison uses a nested tree of ANDs and ORs to properly
+	// filter out already received relationships.
+	SpannerCompatible
+)
+
 // SchemaInformation holds the schema information from the SQL datastore implementation.
 type SchemaInformation struct {
-	TableTuple          string
-	ColNamespace        string
-	ColObjectID         string
-	ColRelation         string
-	ColUsersetNamespace string
-	ColUsersetObjectID  string
-	ColUsersetRelation  string
+	colNamespace         string
+	colObjectID          string
+	colRelation          string
+	colUsersetNamespace  string
+	colUsersetObjectID   string
+	colUsersetRelation   string
+	colCaveatName        string
+	paginationFilterType PaginationFilterType
+}
+
+func NewSchemaInformation(
+	colNamespace,
+	colObjectID,
+	colRelation,
+	colUsersetNamespace,
+	colUsersetObjectID,
+	colUsersetRelation,
+	colCaveatName string,
+	paginationFilterType PaginationFilterType,
+) SchemaInformation {
+	return SchemaInformation{
+		colNamespace,
+		colObjectID,
+		colRelation,
+		colUsersetNamespace,
+		colUsersetObjectID,
+		colUsersetRelation,
+		colCaveatName,
+		paginationFilterType,
+	}
 }
 
 // SchemaQueryFilterer wraps a SchemaInformation and SelectBuilder to give an opinionated
@@ -80,10 +113,84 @@ func NewSchemaQueryFilterer(schema SchemaInformation, initialQuery sq.SelectBuil
 	}
 }
 
+func (sqf SchemaQueryFilterer) TupleOrder(order options.SortOrder) SchemaQueryFilterer {
+	switch order {
+	case options.ByResource:
+		sqf.queryBuilder = sqf.queryBuilder.OrderBy(
+			sqf.schema.colNamespace,
+			sqf.schema.colObjectID,
+			sqf.schema.colRelation,
+			sqf.schema.colUsersetNamespace,
+			sqf.schema.colUsersetObjectID,
+			sqf.schema.colUsersetRelation,
+		)
+	}
+
+	return sqf
+}
+
+func (sqf SchemaQueryFilterer) After(cursor *core.RelationTuple, order options.SortOrder) SchemaQueryFilterer {
+	switch sqf.schema.paginationFilterType {
+	case TupleComparison:
+		switch order {
+		case options.ByResource:
+			comparisonTuple := fmt.Sprintf(
+				"(%s, %s, %s, %s, %s) > (?, ?, ?, ?, ?)",
+				sqf.schema.colObjectID,
+				sqf.schema.colRelation,
+				sqf.schema.colUsersetNamespace,
+				sqf.schema.colUsersetObjectID,
+				sqf.schema.colUsersetRelation,
+			)
+			sqf.queryBuilder = sqf.queryBuilder.Where(
+				comparisonTuple,
+				cursor.ResourceAndRelation.ObjectId,
+				cursor.ResourceAndRelation.Relation,
+				cursor.Subject.Namespace,
+				cursor.Subject.ObjectId,
+				cursor.Subject.Relation,
+			)
+		}
+
+	case SpannerCompatible:
+		switch order {
+		case options.ByResource:
+			sqf.queryBuilder = sqf.queryBuilder.Where(
+				sq.Or{
+					sq.Gt{sqf.schema.colObjectID: cursor.ResourceAndRelation.ObjectId},
+					sq.And{
+						sq.Eq{sqf.schema.colObjectID: cursor.ResourceAndRelation.ObjectId},
+						sq.Gt{sqf.schema.colRelation: cursor.ResourceAndRelation.Relation},
+					},
+					sq.And{
+						sq.Eq{sqf.schema.colObjectID: cursor.ResourceAndRelation.ObjectId},
+						sq.Eq{sqf.schema.colRelation: cursor.ResourceAndRelation.Relation},
+						sq.Gt{sqf.schema.colUsersetNamespace: cursor.Subject.Namespace},
+					},
+					sq.And{
+						sq.Eq{sqf.schema.colObjectID: cursor.ResourceAndRelation.ObjectId},
+						sq.Eq{sqf.schema.colRelation: cursor.ResourceAndRelation.Relation},
+						sq.Eq{sqf.schema.colUsersetNamespace: cursor.Subject.Namespace},
+						sq.Gt{sqf.schema.colUsersetObjectID: cursor.Subject.ObjectId},
+					},
+					sq.And{
+						sq.Eq{sqf.schema.colObjectID: cursor.ResourceAndRelation.ObjectId},
+						sq.Eq{sqf.schema.colRelation: cursor.ResourceAndRelation.Relation},
+						sq.Eq{sqf.schema.colUsersetNamespace: cursor.Subject.Namespace},
+						sq.Eq{sqf.schema.colUsersetObjectID: cursor.Subject.ObjectId},
+						sq.Gt{sqf.schema.colUsersetRelation: cursor.Subject.Relation},
+					},
+				})
+		}
+	}
+
+	return sqf
+}
+
 // FilterToResourceType returns a new SchemaQueryFilterer that is limited to resources of the
 // specified type.
 func (sqf SchemaQueryFilterer) FilterToResourceType(resourceType string) SchemaQueryFilterer {
-	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColNamespace: resourceType})
+	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colNamespace: resourceType})
 	sqf.tracerAttributes = append(sqf.tracerAttributes, ObjNamespaceNameKey.String(resourceType))
 	return sqf
 }
@@ -91,103 +198,208 @@ func (sqf SchemaQueryFilterer) FilterToResourceType(resourceType string) SchemaQ
 // FilterToResourceID returns a new SchemaQueryFilterer that is limited to resources with the
 // specified ID.
 func (sqf SchemaQueryFilterer) FilterToResourceID(objectID string) SchemaQueryFilterer {
-	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColObjectID: objectID})
+	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colObjectID: objectID})
 	sqf.tracerAttributes = append(sqf.tracerAttributes, ObjIDKey.String(objectID))
 	return sqf
+}
+
+func (sqf SchemaQueryFilterer) MustFilterToResourceIDs(resourceIds []string) SchemaQueryFilterer {
+	updated, err := sqf.FilterToResourceIDs(resourceIds)
+	if err != nil {
+		panic(err)
+	}
+	return updated
+}
+
+// FilterToResourceIDs returns a new SchemaQueryFilterer that is limited to resources with any of the
+// specified IDs.
+func (sqf SchemaQueryFilterer) FilterToResourceIDs(resourceIds []string) (SchemaQueryFilterer, error) {
+	// TODO(jschorr): Change this panic into an automatic query split, if we find it necessary.
+	if len(resourceIds) > int(datastore.FilterMaximumIDCount) {
+		return sqf, spiceerrors.MustBugf("cannot have more than %d resources IDs in a single filter", datastore.FilterMaximumIDCount)
+	}
+
+	inClause := sqf.schema.colObjectID + " IN ("
+	args := make([]any, 0, len(resourceIds))
+
+	for index, resourceID := range resourceIds {
+		if len(resourceID) == 0 {
+			return sqf, spiceerrors.MustBugf("got empty resource ID")
+		}
+
+		if index > 0 {
+			inClause += ", "
+		}
+
+		inClause += "?"
+
+		args = append(args, resourceID)
+		sqf.tracerAttributes = append(sqf.tracerAttributes, ObjIDKey.String(resourceID))
+	}
+
+	sqf.queryBuilder = sqf.queryBuilder.Where(inClause+")", args...)
+	return sqf, nil
 }
 
 // FilterToRelation returns a new SchemaQueryFilterer that is limited to resources with the
 // specified relation.
 func (sqf SchemaQueryFilterer) FilterToRelation(relation string) SchemaQueryFilterer {
-	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColRelation: relation})
+	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colRelation: relation})
 	sqf.tracerAttributes = append(sqf.tracerAttributes, ObjRelationNameKey.String(relation))
 	return sqf
 }
 
-// FilterWithSubjectsFilter returns a new SchemaQueryFilterer that is limited to resources with
-// subjects that match the specified filter.
-func (sqf SchemaQueryFilterer) FilterWithSubjectsFilter(filter datastore.SubjectsFilter) SchemaQueryFilterer {
-	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetNamespace: filter.SubjectType})
-	sqf.tracerAttributes = append(sqf.tracerAttributes, SubNamespaceNameKey.String(filter.SubjectType))
+// MustFilterWithRelationshipsFilter returns a new SchemaQueryFilterer that is limited to resources with
+// resources that match the specified filter.
+func (sqf SchemaQueryFilterer) MustFilterWithRelationshipsFilter(filter datastore.RelationshipsFilter) SchemaQueryFilterer {
+	updated, err := sqf.FilterWithRelationshipsFilter(filter)
+	if err != nil {
+		panic(err)
+	}
+	return updated
+}
 
-	if len(filter.SubjectIds) == 1 {
-		subjectID := filter.SubjectIds[0]
-		sqf.tracerAttributes = append(sqf.tracerAttributes, SubObjectIDKey.String(subjectID))
-		sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetObjectID: subjectID})
-	} else if len(filter.SubjectIds) > 1 {
-		// TODO(jschorr): Change this panic into an automatic query split, if we find it necessary.
-		if len(filter.SubjectIds) > 100 {
-			panic("Cannot have more than 100 subject IDs in a single filter")
-		}
+func (sqf SchemaQueryFilterer) FilterWithRelationshipsFilter(filter datastore.RelationshipsFilter) (SchemaQueryFilterer, error) {
+	sqf = sqf.FilterToResourceType(filter.ResourceType)
 
-		inClause := fmt.Sprintf("%s IN (", sqf.schema.ColUsersetObjectID)
-		args := make([]interface{}, 0, len(filter.SubjectIds))
-
-		for index, subjectID := range filter.SubjectIds {
-			if len(subjectID) == 0 {
-				panic("got empty subject id")
-			}
-
-			if index > 0 {
-				inClause += ", "
-			}
-
-			inClause += "?"
-
-			args = append(args, subjectID)
-			sqf.tracerAttributes = append(sqf.tracerAttributes, SubObjectIDKey.String(subjectID))
-		}
-
-		sqf.queryBuilder = sqf.queryBuilder.Where(inClause+")", args...)
+	if filter.OptionalResourceRelation != "" {
+		sqf = sqf.FilterToRelation(filter.OptionalResourceRelation)
 	}
 
-	if !filter.RelationFilter.IsEmpty() {
-		relations := make([]string, 0, 2)
-		if filter.RelationFilter.IncludeEllipsisRelation {
-			relations = append(relations, datastore.Ellipsis)
+	if len(filter.OptionalResourceIds) > 0 {
+		usqf, err := sqf.FilterToResourceIDs(filter.OptionalResourceIds)
+		if err != nil {
+			return sqf, err
 		}
-
-		if filter.RelationFilter.NonEllipsisRelation != "" {
-			relations = append(relations, filter.RelationFilter.NonEllipsisRelation)
-		}
-
-		if len(relations) == 1 {
-			relName := relations[0]
-			sqf.tracerAttributes = append(sqf.tracerAttributes, SubRelationNameKey.String(relName))
-			sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetRelation: relName})
-		} else {
-			orClause := sq.Or{}
-			for _, relationName := range relations {
-				dsRelationName := stringz.DefaultEmpty(relationName, datastore.Ellipsis)
-				orClause = append(orClause, sq.Eq{sqf.schema.ColUsersetRelation: dsRelationName})
-				sqf.tracerAttributes = append(sqf.tracerAttributes, SubRelationNameKey.String(dsRelationName))
-			}
-
-			sqf.queryBuilder = sqf.queryBuilder.Where(orClause)
-		}
+		sqf = usqf
 	}
 
-	return sqf
+	if len(filter.OptionalSubjectsSelectors) > 0 {
+		usqf, err := sqf.FilterWithSubjectsSelectors(filter.OptionalSubjectsSelectors...)
+		if err != nil {
+			return sqf, err
+		}
+		sqf = usqf
+	}
+
+	if filter.OptionalCaveatName != "" {
+		sqf = sqf.FilterWithCaveatName(filter.OptionalCaveatName)
+	}
+
+	return sqf, nil
+}
+
+// MustFilterWithSubjectsSelectors returns a new SchemaQueryFilterer that is limited to resources with
+// subjects that match the specified selector(s).
+func (sqf SchemaQueryFilterer) MustFilterWithSubjectsSelectors(selectors ...datastore.SubjectsSelector) SchemaQueryFilterer {
+	usqf, err := sqf.FilterWithSubjectsSelectors(selectors...)
+	if err != nil {
+		panic(err)
+	}
+	return usqf
+}
+
+// FilterWithSubjectsSelectors returns a new SchemaQueryFilterer that is limited to resources with
+// subjects that match the specified selector(s).
+func (sqf SchemaQueryFilterer) FilterWithSubjectsSelectors(selectors ...datastore.SubjectsSelector) (SchemaQueryFilterer, error) {
+	selectorsOrClause := sq.Or{}
+
+	for _, selector := range selectors {
+		selectorClause := sq.And{}
+
+		if len(selector.OptionalSubjectType) > 0 {
+			selectorClause = append(selectorClause, sq.Eq{sqf.schema.colUsersetNamespace: selector.OptionalSubjectType})
+			sqf.tracerAttributes = append(sqf.tracerAttributes, SubNamespaceNameKey.String(selector.OptionalSubjectType))
+		}
+
+		if len(selector.OptionalSubjectIds) > 0 {
+			// TODO(jschorr): Change this panic into an automatic query split, if we find it necessary.
+			if len(selector.OptionalSubjectIds) > int(datastore.FilterMaximumIDCount) {
+				return sqf, spiceerrors.MustBugf("cannot have more than %d subject IDs in a single filter", datastore.FilterMaximumIDCount)
+			}
+
+			inClause := sqf.schema.colUsersetObjectID + " IN ("
+			args := make([]any, 0, len(selector.OptionalSubjectIds))
+
+			for index, subjectID := range selector.OptionalSubjectIds {
+				if len(subjectID) == 0 {
+					return sqf, spiceerrors.MustBugf("got empty subject ID")
+				}
+
+				if index > 0 {
+					inClause += ", "
+				}
+
+				inClause += "?"
+
+				args = append(args, subjectID)
+				sqf.tracerAttributes = append(sqf.tracerAttributes, SubObjectIDKey.String(subjectID))
+			}
+
+			selectorClause = append(selectorClause, sq.Expr(inClause+")", args...))
+		}
+
+		if !selector.RelationFilter.IsEmpty() {
+			if selector.RelationFilter.OnlyNonEllipsisRelations {
+				selectorClause = append(selectorClause, sq.NotEq{sqf.schema.colUsersetRelation: datastore.Ellipsis})
+			} else {
+				relations := make([]string, 0, 2)
+				if selector.RelationFilter.IncludeEllipsisRelation {
+					relations = append(relations, datastore.Ellipsis)
+				}
+
+				if selector.RelationFilter.NonEllipsisRelation != "" {
+					relations = append(relations, selector.RelationFilter.NonEllipsisRelation)
+				}
+
+				if len(relations) == 1 {
+					relName := relations[0]
+					sqf.tracerAttributes = append(sqf.tracerAttributes, SubRelationNameKey.String(relName))
+					selectorClause = append(selectorClause, sq.Eq{sqf.schema.colUsersetRelation: relName})
+				} else {
+					orClause := sq.Or{}
+					for _, relationName := range relations {
+						dsRelationName := stringz.DefaultEmpty(relationName, datastore.Ellipsis)
+						orClause = append(orClause, sq.Eq{sqf.schema.colUsersetRelation: dsRelationName})
+						sqf.tracerAttributes = append(sqf.tracerAttributes, SubRelationNameKey.String(dsRelationName))
+					}
+
+					selectorClause = append(selectorClause, orClause)
+				}
+			}
+		}
+
+		selectorsOrClause = append(selectorsOrClause, selectorClause)
+	}
+
+	sqf.queryBuilder = sqf.queryBuilder.Where(selectorsOrClause)
+	return sqf, nil
 }
 
 // FilterToSubjectFilter returns a new SchemaQueryFilterer that is limited to resources with
 // subjects that match the specified filter.
 func (sqf SchemaQueryFilterer) FilterToSubjectFilter(filter *v1.SubjectFilter) SchemaQueryFilterer {
-	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetNamespace: filter.SubjectType})
+	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colUsersetNamespace: filter.SubjectType})
 	sqf.tracerAttributes = append(sqf.tracerAttributes, SubNamespaceNameKey.String(filter.SubjectType))
 
 	if filter.OptionalSubjectId != "" {
-		sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetObjectID: filter.OptionalSubjectId})
+		sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colUsersetObjectID: filter.OptionalSubjectId})
 		sqf.tracerAttributes = append(sqf.tracerAttributes, SubObjectIDKey.String(filter.OptionalSubjectId))
 	}
 
 	if filter.OptionalRelation != nil {
 		dsRelationName := stringz.DefaultEmpty(filter.OptionalRelation.Relation, datastore.Ellipsis)
 
-		sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.ColUsersetRelation: dsRelationName})
+		sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colUsersetRelation: dsRelationName})
 		sqf.tracerAttributes = append(sqf.tracerAttributes, SubRelationNameKey.String(dsRelationName))
 	}
 
+	return sqf
+}
+
+func (sqf SchemaQueryFilterer) FilterWithCaveatName(caveatName string) SchemaQueryFilterer {
+	sqf.queryBuilder = sqf.queryBuilder.Where(sq.Eq{sqf.schema.colCaveatName: caveatName})
+	sqf.tracerAttributes = append(sqf.tracerAttributes, CaveatNameKey.String(caveatName))
 	return sqf
 }
 
@@ -202,9 +414,9 @@ func (sqf SchemaQueryFilterer) filterToUsersets(usersets []*core.ObjectAndRelati
 	orClause := sq.Or{}
 	for _, userset := range usersets {
 		orClause = append(orClause, sq.Eq{
-			sqf.schema.ColUsersetNamespace: userset.Namespace,
-			sqf.schema.ColUsersetObjectID:  userset.ObjectId,
-			sqf.schema.ColUsersetRelation:  userset.Relation,
+			sqf.schema.colUsersetNamespace: userset.Namespace,
+			sqf.schema.colUsersetObjectID:  userset.ObjectId,
+			sqf.schema.colUsersetRelation:  userset.Relation,
 		})
 	}
 
@@ -236,6 +448,16 @@ func (tqs TupleQuerySplitter) SplitAndExecuteQuery(
 	ctx, span := tracer.Start(ctx, "SplitAndExecuteQuery")
 	defer span.End()
 	queryOpts := options.NewQueryOptionsWithOptions(opts...)
+
+	query = query.TupleOrder(queryOpts.Sort)
+
+	if queryOpts.After != nil {
+		if queryOpts.Sort == options.Unsorted {
+			return nil, datastore.ErrCursorsWithoutSorting
+		}
+
+		query = query.After(queryOpts.After, queryOpts.Sort)
+	}
 
 	var tuples []*core.RelationTuple
 	remainingLimit := math.MaxInt
@@ -271,9 +493,7 @@ func (tqs TupleQuerySplitter) SplitAndExecuteQuery(
 		remainingUsersets = remainingUsersets[upperBound:]
 	}
 
-	iter := datastore.NewSliceRelationshipIterator(tuples)
-	runtime.SetFinalizer(iter, datastore.BuildFinalizerFunction())
-	return iter, nil
+	return NewSliceRelationshipIterator(tuples, queryOpts.Sort), nil
 }
 
 // ExecuteQueryFunc is a function that can be used to execute a single rendered SQL query.
@@ -282,59 +502,3 @@ type ExecuteQueryFunc func(ctx context.Context, sql string, args []any) ([]*core
 // TxCleanupFunc is a function that should be executed when the caller of
 // TransactionFactory is done with the transaction.
 type TxCleanupFunc func(context.Context)
-
-// TxFactory returns a transaction, cleanup function, and any errors that may have
-// occurred when building the transaction.
-type TxFactory func(context.Context) (pgx.Tx, TxCleanupFunc, error)
-
-// NewPGXExecutor creates an executor that uses the pgx library to make the specified queries.
-func NewPGXExecutor(txSource TxFactory) ExecuteQueryFunc {
-	return func(ctx context.Context, sql string, args []any) ([]*core.RelationTuple, error) {
-		ctx = datastore.SeparateContextWithTracing(ctx)
-
-		span := trace.SpanFromContext(ctx)
-
-		tx, txCleanup, err := txSource(ctx)
-		if err != nil {
-			return nil, fmt.Errorf(errUnableToQueryTuples, err)
-		}
-		defer txCleanup(ctx)
-
-		span.AddEvent("DB transaction established")
-
-		rows, err := tx.Query(ctx, sql, args...)
-		if err != nil {
-			return nil, fmt.Errorf(errUnableToQueryTuples, err)
-		}
-		defer rows.Close()
-
-		span.AddEvent("Query issued to database")
-
-		var tuples []*core.RelationTuple
-		for rows.Next() {
-			nextTuple := &core.RelationTuple{
-				ResourceAndRelation: &core.ObjectAndRelation{},
-				Subject:             &core.ObjectAndRelation{},
-			}
-			err := rows.Scan(
-				&nextTuple.ResourceAndRelation.Namespace,
-				&nextTuple.ResourceAndRelation.ObjectId,
-				&nextTuple.ResourceAndRelation.Relation,
-				&nextTuple.Subject.Namespace,
-				&nextTuple.Subject.ObjectId,
-				&nextTuple.Subject.Relation,
-			)
-			if err != nil {
-				return nil, fmt.Errorf(errUnableToQueryTuples, err)
-			}
-
-			tuples = append(tuples, nextTuple)
-		}
-		if err := rows.Err(); err != nil {
-			return nil, fmt.Errorf(errUnableToQueryTuples, err)
-		}
-
-		span.AddEvent("Tuples loaded", trace.WithAttributes(attribute.Int("tupleCount", len(tuples))))
-		return tuples, nil
-	}
-}

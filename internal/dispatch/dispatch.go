@@ -4,17 +4,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 
+	log "github.com/authzed/spicedb/internal/logging"
 	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
 )
 
 // ErrMaxDepth is returned from CheckDepth when the max depth is exceeded.
 var ErrMaxDepth = errors.New("max depth exceeded: this usually indicates a recursive or too deep data dependency")
+
+// ReadyState represents the ready state of the dispatcher.
+type ReadyState struct {
+	// Message is a human-readable status message for the current state.
+	Message string
+
+	// IsReady indicates whether the datastore is ready.
+	IsReady bool
+}
 
 // Dispatcher interface describes a method for passing subchecks off to additional machines.
 type Dispatcher interface {
@@ -22,12 +29,13 @@ type Dispatcher interface {
 	Expand
 	Lookup
 	ReachableResources
+	LookupSubjects
 
 	// Close closes the dispatcher.
 	Close() error
 
-	// IsReady returns true when dispatcher is able to respond to requests
-	IsReady() bool
+	// ReadyState returns true when dispatcher is able to respond to requests
+	ReadyState() ReadyState
 }
 
 // Check interface describes just the methods required to dispatch check requests.
@@ -60,6 +68,18 @@ type ReachableResources interface {
 	) error
 }
 
+// LookupSubjectsStream is an alias for the stream to which found subjects will be written.
+type LookupSubjectsStream = Stream[*v1.DispatchLookupSubjectsResponse]
+
+// LookupSubjects interface describes just the methods required to dispatch lookup subjects requests.
+type LookupSubjects interface {
+	// DispatchLookupSubjects submits a single lookup subjects request, writing its results to the specified stream.
+	DispatchLookupSubjects(
+		req *v1.DispatchLookupSubjectsRequest,
+		stream LookupSubjectsStream,
+	) error
+}
+
 // HasMetadata is an interface for requests containing resolver metadata.
 type HasMetadata interface {
 	zerolog.LogObjectMarshaler
@@ -82,53 +102,17 @@ func CheckDepth(ctx context.Context, req HasMetadata) error {
 	return nil
 }
 
-type cachePrefix string
-
-const (
-	checkViaRelationPrefix   cachePrefix = "cr"
-	checkViaCanonicalPrefix  cachePrefix = "cc"
-	lookupPrefix             cachePrefix = "l"
-	expandPrefix             cachePrefix = "e"
-	reachableResourcesPrefix cachePrefix = "rr"
-)
-
-var cachePrefixes = []cachePrefix{checkViaRelationPrefix, checkViaCanonicalPrefix, lookupPrefix, expandPrefix, reachableResourcesPrefix}
-
-// CheckRequestToKey converts a check request into a cache key based on the relation
-func CheckRequestToKey(req *v1.DispatchCheckRequest) string {
-	return fmt.Sprintf("%s//%s@%s@%s", checkViaRelationPrefix, tuple.StringONR(req.ResourceAndRelation), tuple.StringONR(req.Subject), req.Metadata.AtRevision)
+// AddResponseMetadata adds the metadata found in the incoming metadata to the existing
+// metadata, *modifying it in place*.
+func AddResponseMetadata(existing *v1.ResponseMeta, incoming *v1.ResponseMeta) {
+	existing.DispatchCount += incoming.DispatchCount
+	existing.CachedDispatchCount += incoming.CachedDispatchCount
+	existing.DepthRequired = max(existing.DepthRequired, incoming.DepthRequired)
 }
 
-// CheckRequestToKeyWithCanonical converts a check request into a cache key based
-// on the canonical key.
-func CheckRequestToKeyWithCanonical(req *v1.DispatchCheckRequest, canonicalKey string) string {
-	if canonicalKey == "" {
-		panic(fmt.Sprintf("given empty canonical key for request: %s => %s", req.ResourceAndRelation, tuple.StringONR(req.Subject)))
+func max(x, y uint32) uint32 {
+	if x < y {
+		return y
 	}
-
-	// NOTE: canonical cache keys are only unique *within* a version of a namespace.
-	return fmt.Sprintf("%s//%s:%s#%s@%s@%s", checkViaCanonicalPrefix, req.ResourceAndRelation.Namespace, req.ResourceAndRelation.ObjectId, canonicalKey, tuple.StringONR(req.Subject), req.Metadata.AtRevision)
-}
-
-// LookupRequestToKey converts a lookup request into a cache key
-func LookupRequestToKey(req *v1.DispatchLookupRequest) string {
-	return fmt.Sprintf("%s//%s#%s@%s@%s", lookupPrefix, req.ObjectRelation.Namespace, req.ObjectRelation.Relation, tuple.StringONR(req.Subject), req.Metadata.AtRevision)
-}
-
-// ExpandRequestToKey converts an expand request into a cache key
-func ExpandRequestToKey(req *v1.DispatchExpandRequest) string {
-	return fmt.Sprintf("%s//%s@%s", expandPrefix, tuple.StringONR(req.ResourceAndRelation), req.Metadata.AtRevision)
-}
-
-// ReachableResourcesRequestToKey converts a reachable resources request into a cache key
-func ReachableResourcesRequestToKey(req *v1.DispatchReachableResourcesRequest) string {
-	return fmt.Sprintf("%s//%s#%s@%s#%s:[%s]@%s",
-		reachableResourcesPrefix,
-		req.ResourceRelation.Namespace,
-		req.ResourceRelation.Relation,
-		req.SubjectRelation.Namespace,
-		req.SubjectRelation.Relation,
-		strings.Join(req.SubjectIds, ","),
-		req.Metadata.AtRevision,
-	)
+	return x
 }

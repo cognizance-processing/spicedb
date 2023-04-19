@@ -7,15 +7,17 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/benbjohnson/clock"
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
+	"github.com/authzed/spicedb/internal/datastore/common"
 	"github.com/authzed/spicedb/internal/datastore/proxy/proxy_test"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/options"
+	"github.com/authzed/spicedb/pkg/datastore/revision"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
@@ -27,10 +29,10 @@ var (
 	errKnown             = errors.New("known error")
 	errAnotherKnown      = errors.New("another known error")
 	nsKnown              = "namespace_name"
-	revisionKnown        = decimal.NewFromInt(1)
-	anotherRevisionKnown = decimal.NewFromInt(2)
+	revisionKnown        = revision.NewFromDecimal(decimal.NewFromInt(1))
+	anotherRevisionKnown = revision.NewFromDecimal(decimal.NewFromInt(2))
 
-	emptyIterator = datastore.NewSliceRelationshipIterator(nil)
+	emptyIterator = common.NewSliceRelationshipIterator(nil, options.Unsorted)
 )
 
 type testFunc func(t *testing.T, proxy datastore.Datastore, expectFirst bool)
@@ -45,14 +47,14 @@ func TestDatastoreRequestHedging(t *testing.T) {
 		f                 testFunc
 	}{
 		{
-			"ReadNamespace",
+			"ReadNamespaceByName",
 			true,
 			[]interface{}{nsKnown},
 			[]interface{}{&core.NamespaceDefinition{}, revisionKnown, errKnown},
 			[]interface{}{&core.NamespaceDefinition{}, anotherRevisionKnown, errKnown},
 			func(t *testing.T, proxy datastore.Datastore, expectFirst bool) {
 				require := require.New(t)
-				_, rev, err := proxy.SnapshotReader(datastore.NoRevision).ReadNamespace(context.Background(), nsKnown)
+				_, rev, err := proxy.SnapshotReader(datastore.NoRevision).ReadNamespaceByName(context.Background(), nsKnown)
 				require.ErrorIs(errKnown, err)
 				if expectFirst {
 					require.Equal(revisionKnown, rev)
@@ -105,7 +107,7 @@ func TestDatastoreRequestHedging(t *testing.T) {
 				require := require.New(t)
 				_, err := proxy.
 					SnapshotReader(datastore.NoRevision).
-					QueryRelationships(context.Background(), &v1.RelationshipFilter{})
+					QueryRelationships(context.Background(), datastore.RelationshipsFilter{})
 				if expectFirst {
 					require.ErrorIs(errKnown, err)
 				} else {
@@ -134,13 +136,15 @@ func TestDatastoreRequestHedging(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.methodName, func(t *testing.T) {
 			defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("github.com/authzed/spicedb/internal/datastore/proxy.autoAdvance.func1"), goleak.IgnoreCurrent())
 			mockTime := clock.NewMock()
 			delegateDS := &proxy_test.MockDatastore{}
-			proxy := newHedgingProxyWithTimeSource(
+			proxy, err := newHedgingProxyWithTimeSource(
 				delegateDS, slowQueryTime, maxSampleCount, quantile, mockTime,
 			)
+			require.NoError(t, err)
 
 			delegate := &delegateDS.Mock
 
@@ -261,25 +265,17 @@ func TestBadArgs(t *testing.T) {
 	require := require.New(t)
 	delegate := &proxy_test.MockDatastore{}
 
-	badInitialThreshold := func() {
-		NewHedgingProxy(delegate, -1*time.Millisecond, maxSampleCount, quantile)
-	}
-	require.Panics(badInitialThreshold)
+	_, err := NewHedgingProxy(delegate, -1*time.Millisecond, maxSampleCount, quantile)
+	require.Error(err)
 
-	maxRequestsTooSmall := func() {
-		NewHedgingProxy(delegate, 10*time.Millisecond, 10, quantile)
-	}
-	require.Panics(maxRequestsTooSmall)
+	_, err = NewHedgingProxy(delegate, 10*time.Millisecond, 10, quantile)
+	require.Error(err)
 
-	invalidQuantileTooSmall := func() {
-		NewHedgingProxy(delegate, 10*time.Millisecond, 1000, 0.0)
-	}
-	require.Panics(invalidQuantileTooSmall)
+	_, err = NewHedgingProxy(delegate, 10*time.Millisecond, 1000, 0.0)
+	require.Error(err)
 
-	invalidQuantileTooLarge := func() {
-		NewHedgingProxy(delegate, 10*time.Millisecond, 1000, 1.0)
-	}
-	require.Panics(invalidQuantileTooLarge)
+	_, err = NewHedgingProxy(delegate, 10*time.Millisecond, 1000, 1.0)
+	require.Error(err)
 }
 
 func TestDatastoreE2E(t *testing.T) {
@@ -289,9 +285,10 @@ func TestDatastoreE2E(t *testing.T) {
 	delegateReader := &proxy_test.MockReader{}
 	mockTime := clock.NewMock()
 
-	proxy := newHedgingProxyWithTimeSource(
+	proxy, err := newHedgingProxyWithTimeSource(
 		delegateDatastore, slowQueryTime, maxSampleCount, quantile, mockTime,
 	)
+	require.NoError(err)
 
 	expectedTuples := []*core.RelationTuple{
 		{
@@ -312,18 +309,18 @@ func TestDatastoreE2E(t *testing.T) {
 
 	delegateReader.
 		On("QueryRelationships", mock.Anything, mock.Anything).
-		Return(datastore.NewSliceRelationshipIterator(expectedTuples), nil).
+		Return(common.NewSliceRelationshipIterator(expectedTuples, options.Unsorted), nil).
 		WaitUntil(mockTime.After(2 * slowQueryTime)).
 		Once()
 	delegateReader.
 		On("QueryRelationships", mock.Anything, mock.Anything).
-		Return(datastore.NewSliceRelationshipIterator(expectedTuples), nil).
+		Return(common.NewSliceRelationshipIterator(expectedTuples, options.Unsorted), nil).
 		Once()
 
 	autoAdvance(mockTime, slowQueryTime/2, 2*slowQueryTime)
 
 	it, err := proxy.SnapshotReader(revisionKnown).QueryRelationships(
-		context.Background(), &v1.RelationshipFilter{
+		context.Background(), datastore.RelationshipsFilter{
 			ResourceType: "test",
 		},
 	)
@@ -344,13 +341,14 @@ func TestContextCancellation(t *testing.T) {
 
 	delegate := &proxy_test.MockDatastore{}
 	mockTime := clock.NewMock()
-	proxy := newHedgingProxyWithTimeSource(
+	proxy, err := newHedgingProxyWithTimeSource(
 		delegate, slowQueryTime, maxSampleCount, quantile, mockTime,
 	)
+	require.NoError(err)
 
 	delegate.
 		On("HeadRevision", mock.Anything).
-		Return(decimal.Zero, errKnown).
+		Return(datastore.NoRevision, errKnown).
 		WaitUntil(mockTime.After(500 * time.Microsecond)).
 		Once()
 
@@ -362,8 +360,7 @@ func TestContextCancellation(t *testing.T) {
 
 	autoAdvance(mockTime, 150*time.Microsecond, 1*time.Millisecond)
 
-	_, err := proxy.HeadRevision(ctx)
-
+	_, err = proxy.HeadRevision(ctx)
 	require.Error(err)
 }
 

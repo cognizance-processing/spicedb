@@ -99,6 +99,7 @@ func TestWatch(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			require := require.New(t)
 
@@ -106,7 +107,7 @@ func TestWatch(t *testing.T) {
 			t.Cleanup(cleanup)
 			client := v1.NewWatchServiceClient(conn)
 
-			cursor := zedtoken.NewFromRevision(revision)
+			cursor := zedtoken.MustNewFromRevision(revision)
 			if tc.startCursor != nil {
 				cursor = tc.startCursor
 			}

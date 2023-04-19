@@ -22,16 +22,16 @@ func (c *Config) ToOption() ConfigOption {
 		to.GCWindow = c.GCWindow
 		to.LegacyFuzzing = c.LegacyFuzzing
 		to.RevisionQuantization = c.RevisionQuantization
-		to.MaxIdleTime = c.MaxIdleTime
-		to.MaxLifetime = c.MaxLifetime
-		to.MaxOpenConns = c.MaxOpenConns
-		to.MinOpenConns = c.MinOpenConns
+		to.ReadConnPool = c.ReadConnPool
+		to.WriteConnPool = c.WriteConnPool
 		to.SplitQueryCount = c.SplitQueryCount
 		to.ReadOnly = c.ReadOnly
 		to.EnableDatastoreMetrics = c.EnableDatastoreMetrics
 		to.DisableStats = c.DisableStats
 		to.BootstrapFiles = c.BootstrapFiles
+		to.BootstrapFileContents = c.BootstrapFileContents
 		to.BootstrapOverwrite = c.BootstrapOverwrite
+		to.BootstrapTimeout = c.BootstrapTimeout
 		to.RequestHedgingEnabled = c.RequestHedgingEnabled
 		to.RequestHedgingInitialSlowValue = c.RequestHedgingInitialSlowValue
 		to.RequestHedgingMaxRequests = c.RequestHedgingMaxRequests
@@ -40,13 +40,13 @@ func (c *Config) ToOption() ConfigOption {
 		to.MaxRetries = c.MaxRetries
 		to.OverlapKey = c.OverlapKey
 		to.OverlapStrategy = c.OverlapStrategy
-		to.HealthCheckPeriod = c.HealthCheckPeriod
 		to.GCInterval = c.GCInterval
 		to.GCMaxOperationTime = c.GCMaxOperationTime
 		to.SpannerCredentialsFile = c.SpannerCredentialsFile
 		to.SpannerEmulatorHost = c.SpannerEmulatorHost
 		to.TablePrefix = c.TablePrefix
 		to.WatchBufferLength = c.WatchBufferLength
+		to.MigrationPhase = c.MigrationPhase
 	}
 }
 
@@ -93,31 +93,17 @@ func WithRevisionQuantization(revisionQuantization time.Duration) ConfigOption {
 	}
 }
 
-// WithMaxIdleTime returns an option that can set MaxIdleTime on a Config
-func WithMaxIdleTime(maxIdleTime time.Duration) ConfigOption {
+// WithReadConnPool returns an option that can set ReadConnPool on a Config
+func WithReadConnPool(readConnPool ConnPoolConfig) ConfigOption {
 	return func(c *Config) {
-		c.MaxIdleTime = maxIdleTime
+		c.ReadConnPool = readConnPool
 	}
 }
 
-// WithMaxLifetime returns an option that can set MaxLifetime on a Config
-func WithMaxLifetime(maxLifetime time.Duration) ConfigOption {
+// WithWriteConnPool returns an option that can set WriteConnPool on a Config
+func WithWriteConnPool(writeConnPool ConnPoolConfig) ConfigOption {
 	return func(c *Config) {
-		c.MaxLifetime = maxLifetime
-	}
-}
-
-// WithMaxOpenConns returns an option that can set MaxOpenConns on a Config
-func WithMaxOpenConns(maxOpenConns int) ConfigOption {
-	return func(c *Config) {
-		c.MaxOpenConns = maxOpenConns
-	}
-}
-
-// WithMinOpenConns returns an option that can set MinOpenConns on a Config
-func WithMinOpenConns(minOpenConns int) ConfigOption {
-	return func(c *Config) {
-		c.MinOpenConns = minOpenConns
+		c.WriteConnPool = writeConnPool
 	}
 }
 
@@ -163,10 +149,31 @@ func SetBootstrapFiles(bootstrapFiles []string) ConfigOption {
 	}
 }
 
+// WithBootstrapFileContents returns an option that can append BootstrapFileContentss to Config.BootstrapFileContents
+func WithBootstrapFileContents(key string, value []byte) ConfigOption {
+	return func(c *Config) {
+		c.BootstrapFileContents[key] = value
+	}
+}
+
+// SetBootstrapFileContents returns an option that can set BootstrapFileContents on a Config
+func SetBootstrapFileContents(bootstrapFileContents map[string][]byte) ConfigOption {
+	return func(c *Config) {
+		c.BootstrapFileContents = bootstrapFileContents
+	}
+}
+
 // WithBootstrapOverwrite returns an option that can set BootstrapOverwrite on a Config
 func WithBootstrapOverwrite(bootstrapOverwrite bool) ConfigOption {
 	return func(c *Config) {
 		c.BootstrapOverwrite = bootstrapOverwrite
+	}
+}
+
+// WithBootstrapTimeout returns an option that can set BootstrapTimeout on a Config
+func WithBootstrapTimeout(bootstrapTimeout time.Duration) ConfigOption {
+	return func(c *Config) {
+		c.BootstrapTimeout = bootstrapTimeout
 	}
 }
 
@@ -226,13 +233,6 @@ func WithOverlapStrategy(overlapStrategy string) ConfigOption {
 	}
 }
 
-// WithHealthCheckPeriod returns an option that can set HealthCheckPeriod on a Config
-func WithHealthCheckPeriod(healthCheckPeriod time.Duration) ConfigOption {
-	return func(c *Config) {
-		c.HealthCheckPeriod = healthCheckPeriod
-	}
-}
-
 // WithGCInterval returns an option that can set GCInterval on a Config
 func WithGCInterval(gCInterval time.Duration) ConfigOption {
 	return func(c *Config) {
@@ -272,5 +272,12 @@ func WithTablePrefix(tablePrefix string) ConfigOption {
 func WithWatchBufferLength(watchBufferLength uint16) ConfigOption {
 	return func(c *Config) {
 		c.WatchBufferLength = watchBufferLength
+	}
+}
+
+// WithMigrationPhase returns an option that can set MigrationPhase on a Config
+func WithMigrationPhase(migrationPhase string) ConfigOption {
+	return func(c *Config) {
+		c.MigrationPhase = migrationPhase
 	}
 }

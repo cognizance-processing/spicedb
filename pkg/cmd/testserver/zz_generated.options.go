@@ -22,6 +22,9 @@ func (c *Config) ToOption() ConfigOption {
 		to.HTTPGateway = c.HTTPGateway
 		to.ReadOnlyHTTPGateway = c.ReadOnlyHTTPGateway
 		to.LoadConfigs = c.LoadConfigs
+		to.MaximumUpdatesPerWrite = c.MaximumUpdatesPerWrite
+		to.MaximumPreconditionCount = c.MaximumPreconditionCount
+		to.MaxCaveatContextSize = c.MaxCaveatContextSize
 	}
 }
 
@@ -72,5 +75,26 @@ func WithLoadConfigs(loadConfigs string) ConfigOption {
 func SetLoadConfigs(loadConfigs []string) ConfigOption {
 	return func(c *Config) {
 		c.LoadConfigs = loadConfigs
+	}
+}
+
+// WithMaximumUpdatesPerWrite returns an option that can set MaximumUpdatesPerWrite on a Config
+func WithMaximumUpdatesPerWrite(maximumUpdatesPerWrite uint16) ConfigOption {
+	return func(c *Config) {
+		c.MaximumUpdatesPerWrite = maximumUpdatesPerWrite
+	}
+}
+
+// WithMaximumPreconditionCount returns an option that can set MaximumPreconditionCount on a Config
+func WithMaximumPreconditionCount(maximumPreconditionCount uint16) ConfigOption {
+	return func(c *Config) {
+		c.MaximumPreconditionCount = maximumPreconditionCount
+	}
+}
+
+// WithMaxCaveatContextSize returns an option that can set MaxCaveatContextSize on a Config
+func WithMaxCaveatContextSize(maxCaveatContextSize int) ConfigOption {
+	return func(c *Config) {
+		c.MaxCaveatContextSize = maxCaveatContextSize
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/authzed/grpcutil"
-	"github.com/grpc-ecosystem/go-grpc-middleware/util/metautils"
+	metautils "github.com/grpc-ecosystem/go-grpc-middleware/v2/metadata"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -28,8 +28,9 @@ func TestPresharedKeys(t *testing.T) {
 	}
 
 	for _, testcase := range testcases {
+		testcase := testcase
 		t.Run(testcase.name, func(t *testing.T) {
-			f := RequirePresharedKey(testcase.presharedkeys)
+			f := MustRequirePresharedKey(testcase.presharedkeys)
 			ctx := context.Background()
 			if testcase.withMetadata {
 				ctx = withTokenMetadata(testcase.authzHeader)
@@ -47,5 +48,5 @@ func TestPresharedKeys(t *testing.T) {
 
 func withTokenMetadata(authzHeader string) context.Context {
 	md := metadata.Pairs("authorization", authzHeader)
-	return metautils.NiceMD(md).ToIncoming(context.Background())
+	return metautils.MD(md).ToIncoming(context.Background())
 }

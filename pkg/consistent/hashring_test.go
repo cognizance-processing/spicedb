@@ -35,10 +35,12 @@ func TestHashring(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(strconv.Itoa(int(tc.replicationFactor)), func(t *testing.T) {
 			require := require.New(t)
 
-			ring := NewHashring(xxhash.Sum64, tc.replicationFactor)
+			ring, err := NewHashring(xxhash.Sum64, tc.replicationFactor)
+			require.NoError(err)
 
 			require.NotNil(ring.hasher)
 			require.Equal(tc.replicationFactor, ring.replicationFactor)
@@ -86,7 +88,9 @@ func TestHashring(t *testing.T) {
 			}
 
 			// Build a consistent hash that adds the nodes in reverse order
-			reverseRing := NewHashring(xxhash.Sum64, tc.replicationFactor)
+			reverseRing, err := NewHashring(xxhash.Sum64, tc.replicationFactor)
+			require.NoError(err)
+
 			for i := 0; i < len(tc.nodes); i++ {
 				toAdd := tc.nodes[len(tc.nodes)-1-i]
 
@@ -136,10 +140,13 @@ func TestBackendBalance(t *testing.T) {
 	testCases := []int{1, 2, 3, 5, 10, 100}
 
 	for _, numMembers := range testCases {
+		numMembers := numMembers
 		t.Run(strconv.Itoa(numMembers), func(t *testing.T) {
+			t.Parallel()
 			require := require.New(t)
 
-			ring := NewHashring(hasherFunc, 100)
+			ring, err := NewHashring(hasherFunc, 100)
+			require.NoError(err)
 
 			memberKeyCount := map[member]int{}
 
@@ -210,8 +217,10 @@ func perturb(require *require.Assertions, ring *Hashring, spread uint8,
 
 	switch perturbation {
 	case add:
-		affectedMember = member(rand.Int())
-		for err := ring.Add(affectedMember); err != nil; affectedMember = member(rand.Int()) {
+		err := errors.New("intentionally blank")
+		for err != nil {
+			affectedMember = member(rand.Int())
+			err = ring.Add(affectedMember)
 		}
 	case remove:
 		i := rand.Intn(len(ring.Members()))
@@ -269,7 +278,9 @@ func verify(require *require.Assertions, ring *Hashring,
 func TestConsistency(t *testing.T) {
 	require := require.New(t)
 
-	ring := NewHashring(xxhash.Sum64, 100)
+	ring, err := NewHashring(xxhash.Sum64, 100)
+	require.NoError(err)
+
 	for memberNum := 0; memberNum < 5; memberNum++ {
 		require.NoError(ring.Add(member(memberNum)))
 	}
@@ -286,7 +297,10 @@ func BenchmarkRemapping(b *testing.B) {
 	require := require.New(b)
 	numKeys := 1000
 	numMembers := 5
-	ring := NewHashring(xxhash.Sum64, 100)
+
+	ring, err := NewHashring(xxhash.Sum64, 100)
+	require.NoError(err)
+
 	for memberNum := 0; memberNum < numMembers; memberNum++ {
 		require.NoError(ring.Add(member(memberNum)))
 	}

@@ -1,5 +1,5 @@
-//go:build docker
-// +build docker
+//go:build docker && image
+// +build docker,image
 
 package main
 
@@ -14,7 +14,6 @@ import (
 	"time"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/authzed/authzed-go/proto/authzed/api/v1alpha1"
 	"github.com/authzed/grpcutil"
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
@@ -28,6 +27,7 @@ import (
 )
 
 func TestTestServer(t *testing.T) {
+	t.Parallel()
 	require := require.New(t)
 
 	tester, err := newTester(t,
@@ -45,6 +45,7 @@ func TestTestServer(t *testing.T) {
 			ExposedPorts: []string{"50051/tcp", "50052/tcp", "8443/tcp", "8444/tcp"},
 		},
 		"",
+		false,
 	)
 	require.NoError(err)
 	defer tester.cleanup()
@@ -53,7 +54,7 @@ func TestTestServer(t *testing.T) {
 	require.NoError(err)
 	defer conn.Close()
 
-	resp, err := healthpb.NewHealthClient(conn).Check(context.Background(), &healthpb.HealthCheckRequest{Service: "authzed.api.v1alpha1.SchemaService"})
+	resp, err := healthpb.NewHealthClient(conn).Check(context.Background(), &healthpb.HealthCheckRequest{Service: "authzed.api.v1.SchemaService"})
 	require.NoError(err)
 	require.Equal(healthpb.HealthCheckResponse_SERVING, resp.GetStatus())
 
@@ -61,7 +62,7 @@ func TestTestServer(t *testing.T) {
 	require.NoError(err)
 	defer roConn.Close()
 
-	resp, err = healthpb.NewHealthClient(roConn).Check(context.Background(), &healthpb.HealthCheckRequest{Service: "authzed.api.v1alpha1.SchemaService"})
+	resp, err = healthpb.NewHealthClient(roConn).Check(context.Background(), &healthpb.HealthCheckRequest{Service: "authzed.api.v1.SchemaService"})
 	require.NoError(err)
 	require.Equal(healthpb.HealthCheckResponse_SERVING, resp.GetStatus())
 
@@ -157,7 +158,7 @@ type spicedbHandle struct {
 	cleanup          func()
 }
 
-func newTester(t *testing.T, containerOpts *dockertest.RunOptions, token string) (*spicedbHandle, error) {
+func newTester(t *testing.T, containerOpts *dockertest.RunOptions, token string, withExistingSchema bool) (*spicedbHandle, error) {
 	pool, err := dockertest.NewPool("")
 	if err != nil {
 		return nil, fmt.Errorf("Could not connect to docker: %w", err)
@@ -191,10 +192,19 @@ func newTester(t *testing.T, containerOpts *dockertest.RunOptions, token string)
 			return false
 		}
 
-		client := v1alpha1.NewSchemaServiceClient(conn)
+		client := v1.NewSchemaServiceClient(conn)
+
+		if withExistingSchema {
+			_, err = client.ReadSchema(context.Background(), &v1.ReadSchemaRequest{})
+			if err != nil {
+				s, ok := status.FromError(err)
+				require.True(t, !ok || s.Code() == codes.Unavailable, fmt.Sprintf("Found unexpected error: %v", err))
+			}
+			return err == nil
+		}
 
 		// Write a basic schema.
-		_, err = client.WriteSchema(context.Background(), &v1alpha1.WriteSchemaRequest{
+		_, err = client.WriteSchema(context.Background(), &v1.WriteSchemaRequest{
 			Schema: `
 			definition user {}
 			

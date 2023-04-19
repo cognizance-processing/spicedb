@@ -6,21 +6,56 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
-	"github.com/shopspring/decimal"
+	"github.com/jackc/pgx/v5"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-
+	"github.com/authzed/spicedb/internal/datastore/common"
 	"github.com/authzed/spicedb/pkg/datastore"
+	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
-const queryChangefeed = "EXPERIMENTAL CHANGEFEED FOR %s WITH updated, cursor = '%s', resolved = '1s';"
+const (
+	queryChangefeed       = "EXPERIMENTAL CHANGEFEED FOR %s WITH updated, cursor = '%s', resolved = '1s', min_checkpoint_frequency = '0';"
+	queryChangefeedPreV22 = "EXPERIMENTAL CHANGEFEED FOR %s WITH updated, cursor = '%s', resolved = '1s';"
+)
+
+type changeDetails struct {
+	Resolved string
+	Updated  string
+	After    *struct {
+		CaveatContext map[string]any `json:"caveat_context"`
+		CaveatName    string         `json:"caveat_name"`
+	}
+}
 
 func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Revision) (<-chan *datastore.RevisionChanges, <-chan error) {
 	updates := make(chan *datastore.RevisionChanges, cds.watchBufferLength)
 	errs := make(chan error, 1)
 
-	interpolated := fmt.Sprintf(queryChangefeed, tableTuple, afterRevision)
+	features, err := cds.Features(ctx)
+	if err != nil {
+		errs <- err
+		return updates, errs
+	}
+
+	if !features.Watch.Enabled {
+		errs <- datastore.NewWatchDisabledErr(fmt.Sprintf("%s. See https://spicedb.dev/d/enable-watch-api-crdb", features.Watch.Reason))
+		return updates, errs
+	}
+
+	// get non-pooled connection for watch
+	// "applications should explicitly create dedicated connections to consume
+	// changefeed data, instead of using a connection pool as most client
+	// drivers do by default."
+	// see: https://www.cockroachlabs.com/docs/v22.2/changefeed-for#considerations
+	conn, err := pgx.Connect(ctx, cds.dburl)
+	if err != nil {
+		errs <- err
+		return updates, errs
+	}
+
+	interpolated := fmt.Sprintf(cds.beginChangefeedQuery, tableTuple, afterRevision)
 
 	go func() {
 		defer close(updates)
@@ -28,7 +63,7 @@ func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Rev
 
 		pendingChanges := make(map[string]*datastore.RevisionChanges)
 
-		changes, err := cds.pool.Query(ctx, interpolated)
+		changes, err := conn.Query(ctx, interpolated)
 		if err != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				errs <- datastore.NewWatchCanceledErr()
@@ -56,19 +91,15 @@ func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Rev
 				return
 			}
 
-			var changeDetails struct {
-				Resolved string
-				Updated  string
-				After    interface{}
-			}
-			if err := json.Unmarshal(changeJSON, &changeDetails); err != nil {
+			var details changeDetails
+			if err := json.Unmarshal(changeJSON, &details); err != nil {
 				errs <- err
 				return
 			}
 
-			if changeDetails.Resolved != "" {
+			if details.Resolved != "" {
 				// This entry indicates that we are ready to potentially emit some changes
-				resolved, err := decimal.NewFromString(changeDetails.Resolved)
+				resolved, err := cds.RevisionFromString(details.Resolved)
 				if err != nil {
 					errs <- err
 					return
@@ -76,7 +107,7 @@ func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Rev
 
 				var toEmit []*datastore.RevisionChanges
 				for ts, values := range pendingChanges {
-					if values.Revision.LessThanOrEqual(resolved) {
+					if resolved.GreaterThan(values.Revision) {
 						delete(pendingChanges, ts)
 
 						toEmit = append(toEmit, values)
@@ -105,9 +136,21 @@ func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Rev
 				return
 			}
 
-			revision, err := decimal.NewFromString(changeDetails.Updated)
+			revision, err := cds.RevisionFromString(details.Updated)
 			if err != nil {
 				errs <- fmt.Errorf("malformed update timestamp: %w", err)
+				return
+			}
+
+			var caveatName string
+			var caveatContext map[string]any
+			if details.After != nil && details.After.CaveatName != "" {
+				caveatName = details.After.CaveatName
+				caveatContext = details.After.CaveatContext
+			}
+			ctxCaveat, err := common.ContextualizedCaveatFrom(caveatName, caveatContext)
+			if err != nil {
+				errs <- err
 				return
 			}
 
@@ -123,26 +166,33 @@ func (cds *crdbDatastore) Watch(ctx context.Context, afterRevision datastore.Rev
 						ObjectId:  pkValues[4],
 						Relation:  pkValues[5],
 					},
+					Caveat: ctxCaveat,
 				},
 			}
 
-			if changeDetails.After == nil {
+			if details.After == nil {
 				oneChange.Operation = core.RelationTupleUpdate_DELETE
 			} else {
 				oneChange.Operation = core.RelationTupleUpdate_TOUCH
 			}
 
-			pending, ok := pendingChanges[changeDetails.Updated]
+			pending, ok := pendingChanges[details.Updated]
 			if !ok {
 				pending = &datastore.RevisionChanges{
 					Revision: revision,
 				}
-				pendingChanges[changeDetails.Updated] = pending
+				pendingChanges[details.Updated] = pending
 			}
 			pending.Changes = append(pending.Changes, oneChange)
 		}
+
 		if changes.Err() != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
+				closeCtx, closeCancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer closeCancel()
+				if err := conn.Close(closeCtx); err != nil {
+					errs <- err
+				}
 				errs <- datastore.NewWatchCanceledErr()
 			} else {
 				errs <- changes.Err()
