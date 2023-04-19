@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"time"
-	"os"
+
 	"golang.org/x/sync/errgroup"
 
 	sq "github.com/Masterminds/squirrel"
@@ -93,17 +93,9 @@ func NewPostgresDatastore(
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
-	// cog
-	socketDir, isSet := os.LookupEnv("DB_SOCKET_DIR")
-	if !isSet {
-		socketDir = "/cloudsql"
-	}
-	// assume only one %s
-	nUrl := fmt.Sprintf(url, socketDir)
-	fmt.Println(nUrl)
 
 	// config must be initialized by ParseConfig
-	pgxConfig, err := pgxpool.ParseConfig(nUrl)
+	pgxConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -170,7 +162,7 @@ func NewPostgresDatastore(
 		CachedOptimizedRevisions: revisions.NewCachedOptimizedRevisions(
 			maxRevisionStaleness,
 		),
-		dburl:                   nUrl,
+		dburl:                   url,
 		dbpool:                  dbpool,
 		watchBufferLength:       config.watchBufferLength,
 		optimizedRevisionQuery:  revisionQuery,
