@@ -23,6 +23,7 @@ func TestAsyncDispatch(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
+		tc := tc
 		t.Run(fmt.Sprintf("%d/%d", tc.numRequests, tc.concurrencyLimit), func(t *testing.T) {
 			require := require.New(t)
 
@@ -33,19 +34,23 @@ func TestAsyncDispatch(t *testing.T) {
 			var dispatchedCount uint16
 			var completedCount uint16
 
-			reqs := make([]ReduceableCheckFunc, 0, tc.numRequests)
+			reqs := make([]int, 0, tc.numRequests)
 
 			for i := 0; i < int(tc.numRequests); i++ {
-				reqs = append(reqs, func(ctx context.Context, resultChan chan<- CheckResult) {
+				reqs = append(reqs, i)
+			}
+
+			channel := make(chan CheckResult, tc.numRequests)
+
+			dispatchAllAsync(ctx, currentRequestContext{}, reqs,
+				func(ctx context.Context, crc currentRequestContext, child int) CheckResult {
 					l.Lock()
 					defer l.Unlock()
 					dispatchedCount++
 					letFinish.Wait()
 					completedCount++
-				})
-			}
-
-			dispatchAllAsync(ctx, reqs, nil, tc.concurrencyLimit)
+					return noMembers()
+				}, channel, tc.concurrencyLimit)
 
 			require.Eventually(func() bool {
 				l.Lock()

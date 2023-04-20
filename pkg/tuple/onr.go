@@ -1,20 +1,12 @@
 package tuple
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 
-	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/jzelinskie/stringz"
 
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-)
-
-const (
-	// Format is the serialized form of the tuple
-	formatWithRel            = "%s:%s#%s"
-	formatImplicitSubjectRel = "%s:%s"
 )
 
 // ObjectAndRelation creates an ONR from string pieces.
@@ -23,6 +15,14 @@ func ObjectAndRelation(ns, oid, rel string) *core.ObjectAndRelation {
 		Namespace: ns,
 		ObjectId:  oid,
 		Relation:  rel,
+	}
+}
+
+// RelationReference creates a RelationReference from the string pieces.
+func RelationReference(namespaceName string, relationName string) *core.RelationReference {
+	return &core.RelationReference{
+		Namespace: namespaceName,
+		Relation:  relationName,
 	}
 }
 
@@ -64,13 +64,28 @@ func ParseONR(onr string) *core.ObjectAndRelation {
 	}
 }
 
+// JoinRelRef joins the namespace and relation together into the same
+// format as `StringRR()`.
+func JoinRelRef(namespace, relation string) string { return namespace + "#" + relation }
+
+// MustSplitRelRef splits a string produced by `JoinRelRef()` and panics if
+// it fails.
+func MustSplitRelRef(relRef string) (namespace, relation string) {
+	var ok bool
+	namespace, relation, ok = strings.Cut(relRef, "#")
+	if !ok {
+		panic("improperly formatted relation reference")
+	}
+	return
+}
+
 // StringRR converts a RR object to a string.
 func StringRR(rr *core.RelationReference) string {
 	if rr == nil {
 		return ""
 	}
 
-	return fmt.Sprintf("%s#%s", rr.Namespace, rr.Relation)
+	return JoinRelRef(rr.Namespace, rr.Relation)
 }
 
 // StringONR converts an ONR object to a string.
@@ -78,12 +93,10 @@ func StringONR(onr *core.ObjectAndRelation) string {
 	if onr == nil {
 		return ""
 	}
-
 	if onr.Relation == Ellipsis {
-		return fmt.Sprintf(formatImplicitSubjectRel, onr.Namespace, onr.ObjectId)
+		return JoinObjectRef(onr.Namespace, onr.ObjectId)
 	}
-
-	return fmt.Sprintf(formatWithRel, onr.Namespace, onr.ObjectId, onr.Relation)
+	return JoinRelRef(JoinObjectRef(onr.Namespace, onr.ObjectId), onr.Relation)
 }
 
 // StringsONRs converts ONR objects to a string slice, sorted.
@@ -95,19 +108,4 @@ func StringsONRs(onrs []*core.ObjectAndRelation) []string {
 
 	sort.Strings(onrstrings)
 	return onrstrings
-}
-
-// StringObjectRef marshals a *v1.ObjectReference into a string.
-func StringObjectRef(ref *v1.ObjectReference) string {
-	return ref.ObjectType + ":" + ref.ObjectId
-}
-
-// StringSubjectRef marshals a *v1.SubjectReference into a string.
-func StringSubjectRef(ref *v1.SubjectReference) string {
-	var b strings.Builder
-	b.WriteString(ref.Object.ObjectType + ":" + ref.Object.ObjectId)
-	if ref.OptionalRelation != "" {
-		b.WriteString("#" + ref.OptionalRelation)
-	}
-	return b.String()
 }

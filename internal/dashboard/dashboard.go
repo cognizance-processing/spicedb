@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/rs/zerolog/log"
+	log "github.com/authzed/spicedb/internal/logging"
 
 	"github.com/authzed/spicedb/pkg/datastore"
 	"github.com/authzed/spicedb/pkg/schemadsl/generator"
 )
+
+// TODO(jschorr): Replace with a real dashboard
 
 const rootTemplate = `
 <html>
@@ -116,7 +118,7 @@ func NewHandler(grpcAddr string, grpcTLSEnabled bool, datastoreEngine string, ds
 			return
 		}
 
-		isReady, err := ds.IsReady(r.Context())
+		state, err := ds.ReadyState(r.Context())
 		if err != nil {
 			log.Ctx(r.Context()).Error().AnErr("templateError", err).Msg("Got error when checking database")
 			fmt.Fprintf(w, "Internal Error")
@@ -125,7 +127,7 @@ func NewHandler(grpcAddr string, grpcTLSEnabled bool, datastoreEngine string, ds
 
 		schema := ""
 		hasSampleSchema := false
-
+		isReady := state.IsReady
 		if isReady {
 			var objectDefs []string
 			userFound := false
@@ -138,7 +140,7 @@ func NewHandler(grpcAddr string, grpcTLSEnabled bool, datastoreEngine string, ds
 				return
 			}
 
-			nsDefs, err := ds.SnapshotReader(headRevision).ListNamespaces(r.Context())
+			nsDefs, err := ds.SnapshotReader(headRevision).ListAllNamespaces(r.Context())
 			if err != nil {
 				log.Ctx(r.Context()).Error().AnErr("datastoreError", err).Msg("Got error when trying to load namespaces")
 				fmt.Fprintf(w, "Internal Error")
@@ -146,13 +148,19 @@ func NewHandler(grpcAddr string, grpcTLSEnabled bool, datastoreEngine string, ds
 			}
 
 			for _, nsDef := range nsDefs {
-				objectDef, _ := generator.GenerateSource(nsDef)
+				objectDef, _, err := generator.GenerateSource(nsDef.Definition)
+				if err != nil {
+					log.Ctx(r.Context()).Error().Err(err).Msg("Got error when trying to generate namespace")
+					fmt.Fprintf(w, "Internal Error")
+					return
+				}
+
 				objectDefs = append(objectDefs, objectDef)
 
-				if nsDef.Name == "user" {
+				if nsDef.Definition.Name == "user" {
 					userFound = true
 				}
-				if nsDef.Name == "resource" {
+				if nsDef.Definition.Name == "resource" {
 					resourceFound = true
 				}
 			}

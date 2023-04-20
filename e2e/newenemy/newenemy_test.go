@@ -16,16 +16,17 @@ import (
 	"time"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/authzed/authzed-go/proto/authzed/api/v1alpha1"
-	"github.com/jackc/pgtype"
-	"github.com/jackc/pgx/v4"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
+
+	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"github.com/authzed/spicedb/pkg/zedtoken"
 
 	"github.com/authzed/spicedb/e2e"
 	"github.com/authzed/spicedb/e2e/cockroach"
 	"github.com/authzed/spicedb/e2e/generator"
 	"github.com/authzed/spicedb/e2e/spice"
-	"github.com/authzed/spicedb/pkg/zedtoken"
 )
 
 type NamespaceNames struct {
@@ -174,10 +175,10 @@ func TestNoNewEnemy(t *testing.T) {
 	// 4000 is larger than we need to span all three nodes, but a higher number
 	// seems to make the test converge faster
 	schemaData := generateSchemaData(4000, 500)
-	fillSchema(t, schemaTpl, schemaData, vulnerableSpiceDB[1].Client().V1Alpha1().Schema())
+	fillSchema(t, schemaTpl, schemaData, vulnerableSpiceDB[1].Client().V1().Schema())
 	slowNodeID, err := crdb[1].NodeID(ctx)
 	require.NoError(t, err)
-	prefix := namespacesForNode(ctx, t, crdb[1].Conn(), vulnerableSpiceDB[0].Client().V1Alpha1().Schema(), slowNodeID)
+	prefix := namespacesForNode(ctx, t, crdb[1].Conn(), vulnerableSpiceDB[0].Client().V1().Schema(), slowNodeID)
 	t.Log("fill with relationships to span multiple ranges")
 	fill(ctx, t, vulnerableSpiceDB[0].Client().V1().Permissions(), prefix, generator.NewUniqueGenerator(objIDRegex), 500, 500)
 
@@ -204,6 +205,7 @@ func TestNoNewEnemy(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			vulnerableFn, protectedFn := attemptFnsForProbeFns(tt.vulnerableMax, tt.vulnerableProbe, tt.protectedProbe)
 			statTest(t, tt.sampleSize, vulnerableFn, protectedFn)
@@ -303,7 +305,7 @@ func checkDataNoNewEnemy(ctx context.Context, t testing.TB, slowNodeID int, crdb
 	objIDGenerator := generator.NewUniqueGenerator(objIDRegex)
 	var prefix NamespaceNames
 	if goodNs == nil {
-		prefix = namespacesForNode(ctx, t, crdb[1].Conn(), spicedb[0].Client().V1Alpha1().Schema(), slowNodeID)
+		prefix = namespacesForNode(ctx, t, crdb[1].Conn(), spicedb[0].Client().V1().Schema(), slowNodeID)
 		t.Log("filling with data to span multiple ranges for prefix", prefix)
 		fill(ctx, t, spicedb[0].Client().V1().Permissions(), prefix, objIDGenerator, 100, 100)
 	} else {
@@ -364,11 +366,11 @@ func checkDataNoNewEnemy(ctx context.Context, t testing.TB, slowNodeID int, crdb
 		ns2AllowlistLeader := getLeaderNodeForNamespace(ctx, crdb[2].Conn(), allowlists[i].Relationship.Subject.Object.ObjectType)
 
 		r1leader, r2leader := getLeaderNode(ctx, crdb[2].Conn(), blockusers[i].Relationship), getLeaderNode(ctx, crdb[2].Conn(), allowlists[i].Relationship)
-		z1, _ := zedtoken.DecodeRevision(r1.WrittenAt)
-		z2, _ := zedtoken.DecodeRevision(r2.WrittenAt)
-		t.Log(sleep, z1, z2, z1.Sub(z2).String(), r1leader, r2leader, ns1BlocklistLeader, ns1UserLeader, ns2ResourceLeader, ns2AllowlistLeader)
+		z1, _ := zedtoken.DecodeRevision(r1.WrittenAt, revision.DecimalDecoder{})
+		z2, _ := zedtoken.DecodeRevision(r2.WrittenAt, revision.DecimalDecoder{})
+		t.Log(sleep, z1, z2, z1.GreaterThan(z2), r1leader, r2leader, ns1BlocklistLeader, ns1UserLeader, ns2ResourceLeader, ns2AllowlistLeader)
 
-		if z1.Sub(z2).IsPositive() {
+		if z1.GreaterThan(z2) {
 			t.Log("timestamps are reversed", canHas.Permissionship.String())
 		}
 
@@ -435,14 +437,14 @@ func fill(ctx context.Context, t testing.TB, client v1.PermissionsServiceClient,
 }
 
 // fillSchema generates the schema text for given SchemaData and applies it
-func fillSchema(t testing.TB, template *template.Template, data []SchemaData, schemaClient v1alpha1.SchemaServiceClient) {
+func fillSchema(t testing.TB, template *template.Template, data []SchemaData, schemaClient v1.SchemaServiceClient) {
 	var b strings.Builder
 	batchSize := len(data[0].Namespaces)
 	for i, d := range data {
 		t.Logf("filling %d to %d", i*batchSize, (i+1)*batchSize)
 		b.Reset()
 		require.NoError(t, template.Execute(&b, d))
-		_, err := schemaClient.WriteSchema(context.Background(), &v1alpha1.WriteSchemaRequest{
+		_, err := schemaClient.WriteSchema(context.Background(), &v1.WriteSchemaRequest{
 			Schema: b.String(),
 		})
 		require.NoError(t, err)
@@ -450,13 +452,13 @@ func fillSchema(t testing.TB, template *template.Template, data []SchemaData, sc
 }
 
 // namespacesForNode finds a prefix with namespace leaders on the node id
-func namespacesForNode(ctx context.Context, t testing.TB, conn *pgx.Conn, schemaClient v1alpha1.SchemaServiceClient, node int) NamespaceNames {
+func namespacesForNode(ctx context.Context, t testing.TB, conn *pgx.Conn, schemaClient v1.SchemaServiceClient, node int) NamespaceNames {
 	for {
 		newSchema := generateSchemaData(1, 1)
 		p := newSchema[0].Namespaces[0]
 		var b strings.Builder
 		require.NoError(t, schemaTpl.Execute(&b, newSchema[0]))
-		_, err := schemaClient.WriteSchema(context.Background(), &v1alpha1.WriteSchemaRequest{
+		_, err := schemaClient.WriteSchema(context.Background(), &v1.WriteSchemaRequest{
 			Schema: b.String(),
 		})
 		require.NoError(t, err)
@@ -608,8 +610,8 @@ func leaderFromRangeRow(row pgx.Row) int {
 		rangeID            int
 		leaseHolder        int
 		leaseHoldeLocality sql.NullString
-		replicas           pgtype.Int8Array
-		replicaLocalities  pgtype.TextArray
+		replicas           []pgtype.Int8
+		replicaLocalities  []pgtype.Text
 	)
 
 	if err := row.Scan(&startKey, &endKey, &rangeID, &leaseHolder, &leaseHoldeLocality, &replicas, &replicaLocalities); err != nil {

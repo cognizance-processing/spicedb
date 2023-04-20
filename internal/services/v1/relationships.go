@@ -2,50 +2,96 @@ package v1
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"time"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	grpcmw "github.com/grpc-ecosystem/go-grpc-middleware"
-	grpcvalidate "github.com/grpc-ecosystem/go-grpc-middleware/validator"
+	grpcvalidate "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/validator"
 	"github.com/jzelinskie/stringz"
-	"github.com/rs/zerolog/log"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/graph"
+	"github.com/authzed/spicedb/internal/middleware"
 	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
 	"github.com/authzed/spicedb/internal/middleware/handwrittenvalidation"
+	"github.com/authzed/spicedb/internal/middleware/streamtimeout"
 	"github.com/authzed/spicedb/internal/middleware/usagemetrics"
 	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/services/serviceerrors"
+	"github.com/authzed/spicedb/internal/relationships"
 	"github.com/authzed/spicedb/internal/services/shared"
-	"github.com/authzed/spicedb/internal/sharederrors"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/options"
+	"github.com/authzed/spicedb/pkg/datastore/pagination"
 	"github.com/authzed/spicedb/pkg/middleware/consistency"
 	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
 	"github.com/authzed/spicedb/pkg/tuple"
+	"github.com/authzed/spicedb/pkg/util"
 	"github.com/authzed/spicedb/pkg/zedtoken"
 )
+
+var writeUpdateCounter = promauto.NewHistogramVec(prometheus.HistogramOpts{
+	Namespace: "spicedb",
+	Subsystem: "v1",
+	Name:      "write_relationships_updates",
+	Help:      "The update counts for the WriteRelationships calls",
+	Buckets:   []float64{0, 1, 2, 5, 10, 15, 25, 50, 100, 250, 500, 1000},
+}, []string{"kind"})
+
+// PermissionsServerConfig is configuration for the permissions server.
+type PermissionsServerConfig struct {
+	// MaxUpdatesPerWrite holds the maximum number of updates allowed per
+	// WriteRelationships call.
+	MaxUpdatesPerWrite uint16
+
+	// MaxPreconditionsCount holds the maximum number of preconditions allowed
+	// on a WriteRelationships or DeleteRelationships call.
+	MaxPreconditionsCount uint16
+
+	// MaximumAPIDepth is the default/starting depth remaining for API calls made
+	// to the permissions server.
+	MaximumAPIDepth uint32
+
+	// StreamingAPITimeout is the timeout for streaming APIs when no response has been
+	// recently received.
+	StreamingAPITimeout time.Duration
+
+	// MaxCaveatContextSize defines the maximum length of the request caveat context in bytes
+	MaxCaveatContextSize int
+
+	// MaxDatastoreReadPageSize defines the maximum number of relationships loaded from the
+	// datastore in one query.
+	MaxDatastoreReadPageSize uint64
+}
 
 // NewPermissionsServer creates a PermissionsServiceServer instance.
 func NewPermissionsServer(
 	dispatch dispatch.Dispatcher,
-	defaultDepth uint32,
+	config PermissionsServerConfig,
 ) v1.PermissionsServiceServer {
+	configWithDefaults := PermissionsServerConfig{
+		MaxPreconditionsCount:    defaultIfZero(config.MaxPreconditionsCount, 1000),
+		MaxUpdatesPerWrite:       defaultIfZero(config.MaxUpdatesPerWrite, 1000),
+		MaximumAPIDepth:          defaultIfZero(config.MaximumAPIDepth, 50),
+		StreamingAPITimeout:      defaultIfZero(config.StreamingAPITimeout, 30*time.Second),
+		MaxCaveatContextSize:     config.MaxCaveatContextSize,
+		MaxDatastoreReadPageSize: defaultIfZero(config.MaxDatastoreReadPageSize, 1_000),
+	}
+
 	return &permissionServer{
-		dispatch:     dispatch,
-		defaultDepth: defaultDepth,
+		dispatch: dispatch,
+		config:   configWithDefaults,
 		WithServiceSpecificInterceptors: shared.WithServiceSpecificInterceptors{
-			Unary: grpcmw.ChainUnaryServer(
-				grpcvalidate.UnaryServerInterceptor(),
+			Unary: middleware.ChainUnaryServer(
+				grpcvalidate.UnaryServerInterceptor(true),
 				handwrittenvalidation.UnaryServerInterceptor,
 				usagemetrics.UnaryServerInterceptor(),
 			),
-			Stream: grpcmw.ChainStreamServer(
-				grpcvalidate.StreamServerInterceptor(),
+			Stream: middleware.ChainStreamServer(
+				grpcvalidate.StreamServerInterceptor(true),
 				handwrittenvalidation.StreamServerInterceptor,
 				usagemetrics.StreamServerInterceptor(),
+				streamtimeout.MustStreamServerInterceptor(configWithDefaults.StreamingAPITimeout),
 			),
 		},
 	}
@@ -55,8 +101,8 @@ type permissionServer struct {
 	v1.UnimplementedPermissionsServiceServer
 	shared.WithServiceSpecificInterceptors
 
-	dispatch     dispatch.Dispatcher
-	defaultDepth uint32
+	dispatch dispatch.Dispatcher
+	config   PermissionsServerConfig
 }
 
 func (ps *permissionServer) checkFilterComponent(ctx context.Context, objectType, optionalRelation string, ds datastore.Reader) error {
@@ -85,149 +131,103 @@ func (ps *permissionServer) checkFilterNamespaces(ctx context.Context, filter *v
 
 func (ps *permissionServer) ReadRelationships(req *v1.ReadRelationshipsRequest, resp v1.PermissionsService_ReadRelationshipsServer) error {
 	ctx := resp.Context()
-	atRevision, revisionReadAt := consistency.MustRevisionFromContext(ctx)
+	atRevision, revisionReadAt, err := consistency.RevisionFromContext(ctx)
+	if err != nil {
+		return rewriteError(ctx, err)
+	}
+
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(atRevision)
 
 	if err := ps.checkFilterNamespaces(ctx, req.RelationshipFilter, ds); err != nil {
-		return rewritePermissionsError(ctx, err)
+		return rewriteError(ctx, err)
 	}
 
 	usagemetrics.SetInContext(ctx, &dispatchv1.ResponseMeta{
 		DispatchCount: 1,
 	})
 
-	tupleIterator, err := ds.QueryRelationships(ctx, datastore.RelationshipsFilterFromPublicFilter(req.RelationshipFilter))
+	tupleIterator, err := pagination.NewPaginatedIterator(
+		ctx,
+		ds,
+		datastore.RelationshipsFilterFromPublicFilter(req.RelationshipFilter),
+		ps.config.MaxDatastoreReadPageSize,
+		options.ByResource,
+	)
 	if err != nil {
-		return rewritePermissionsError(ctx, err)
+		return rewriteError(ctx, err)
 	}
 	defer tupleIterator.Close()
 
-	for tuple := tupleIterator.Next(); tuple != nil; tuple = tupleIterator.Next() {
-		subject := tuple.Subject
-
-		subjectRelation := ""
-		if subject.Relation != datastore.Ellipsis {
-			subjectRelation = subject.Relation
+	response := &v1.ReadRelationshipsResponse{
+		ReadAt: revisionReadAt,
+	}
+	targetRel := tuple.NewRelationship()
+	targetCaveat := &v1.ContextualizedCaveat{}
+	for tpl := tupleIterator.Next(); tpl != nil; tpl = tupleIterator.Next() {
+		if tupleIterator.Err() != nil {
+			return rewriteError(ctx, fmt.Errorf("error when reading tuples: %w", tupleIterator.Err()))
 		}
 
-		err := resp.Send(&v1.ReadRelationshipsResponse{
-			ReadAt: revisionReadAt,
-			Relationship: &v1.Relationship{
-				Resource: &v1.ObjectReference{
-					ObjectType: tuple.ResourceAndRelation.Namespace,
-					ObjectId:   tuple.ResourceAndRelation.ObjectId,
-				},
-				Relation: tuple.ResourceAndRelation.Relation,
-				Subject: &v1.SubjectReference{
-					Object: &v1.ObjectReference{
-						ObjectType: subject.Namespace,
-						ObjectId:   subject.ObjectId,
-					},
-					OptionalRelation: subjectRelation,
-				},
-			},
-		})
+		tuple.MustToRelationshipMutating(tpl, targetRel, targetCaveat)
+		response.Relationship = targetRel
+		err := resp.Send(response)
 		if err != nil {
-			return err
+			return rewriteError(ctx, fmt.Errorf("error when streaming tuple: %w", err))
 		}
 	}
+
 	if tupleIterator.Err() != nil {
-		return status.Errorf(codes.Internal, "error when reading tuples: %s", tupleIterator.Err())
+		return rewriteError(ctx, fmt.Errorf("error when reading tuples: %w", tupleIterator.Err()))
 	}
 
+	tupleIterator.Close()
 	return nil
 }
 
 func (ps *permissionServer) WriteRelationships(ctx context.Context, req *v1.WriteRelationshipsRequest) (*v1.WriteRelationshipsResponse, error) {
 	ds := datastoremw.MustFromContext(ctx)
 
-	revision, err := ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
+	// Ensure that the updates and preconditions are not over the configured limits.
+	if len(req.Updates) > int(ps.config.MaxUpdatesPerWrite) {
+		return nil, rewriteError(
+			ctx,
+			NewExceedsMaximumUpdatesErr(uint16(len(req.Updates)), ps.config.MaxUpdatesPerWrite),
+		)
+	}
+
+	if len(req.OptionalPreconditions) > int(ps.config.MaxPreconditionsCount) {
+		return nil, rewriteError(
+			ctx,
+			NewExceedsMaximumPreconditionsErr(uint16(len(req.OptionalPreconditions)), ps.config.MaxPreconditionsCount),
+		)
+	}
+
+	// Check for duplicate updates and create the set of caveat names to load.
+	updateRelationshipSet := util.NewSet[string]()
+	for _, update := range req.Updates {
+		tupleStr := tuple.StringRelationshipWithoutCaveat(update.Relationship)
+		if !updateRelationshipSet.Add(tupleStr) {
+			return nil, rewriteError(
+				ctx,
+				NewDuplicateRelationshipErr(update),
+			)
+		}
+	}
+
+	// Execute the write operation(s).
+	tupleUpdates := tuple.UpdateFromRelationshipUpdates(req.Updates)
+	revision, err := ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
+		// Validate the preconditions.
 		for _, precond := range req.OptionalPreconditions {
 			if err := ps.checkFilterNamespaces(ctx, precond.Filter, rwt); err != nil {
 				return err
 			}
 		}
-		for _, update := range req.Updates {
-			if err := tuple.ValidateResourceID(update.Relationship.Resource.ObjectId); err != nil {
-				return err
-			}
 
-			if err := tuple.ValidateSubjectID(update.Relationship.Subject.Object.ObjectId); err != nil {
-				return err
-			}
-
-			if err := namespace.CheckNamespaceAndRelation(
-				ctx,
-				update.Relationship.Resource.ObjectType,
-				update.Relationship.Relation,
-				false,
-				rwt,
-			); err != nil {
-				return err
-			}
-
-			if err := namespace.CheckNamespaceAndRelation(
-				ctx,
-				update.Relationship.Subject.Object.ObjectType,
-				stringz.DefaultEmpty(update.Relationship.Subject.OptionalRelation, datastore.Ellipsis),
-				true,
-				rwt,
-			); err != nil {
-				return err
-			}
-
-			_, ts, err := namespace.ReadNamespaceAndTypes(
-				ctx,
-				update.Relationship.Resource.ObjectType,
-				rwt,
-			)
-			if err != nil {
-				return err
-			}
-
-			if ts.IsPermission(update.Relationship.Relation) {
-				return status.Errorf(
-					codes.InvalidArgument,
-					"cannot write a relationship to permission %s",
-					update.Relationship.Relation,
-				)
-			}
-
-			if update.Relationship.Subject.Object.ObjectId == tuple.PublicWildcard {
-				isAllowed, err := ts.IsAllowedPublicNamespace(
-					update.Relationship.Relation,
-					update.Relationship.Subject.Object.ObjectType)
-				if err != nil {
-					return err
-				}
-
-				if isAllowed != namespace.PublicSubjectAllowed {
-					return status.Errorf(
-						codes.InvalidArgument,
-						"wildcard subjects of type %s are not allowed on %v",
-						update.Relationship.Subject.Object.ObjectType,
-						tuple.StringObjectRef(update.Relationship.Resource),
-					)
-				}
-			} else {
-				isAllowed, err := ts.IsAllowedDirectRelation(
-					update.Relationship.Relation,
-					update.Relationship.Subject.Object.ObjectType,
-					stringz.DefaultEmpty(update.Relationship.Subject.OptionalRelation, datastore.Ellipsis),
-				)
-				if err != nil {
-					return err
-				}
-
-				if isAllowed == namespace.DirectRelationNotValid {
-					return status.Errorf(
-						codes.InvalidArgument,
-						"subject %s is not allowed for the resource %s",
-						tuple.StringSubjectRef(update.Relationship.Subject),
-						tuple.StringObjectRef(update.Relationship.Resource),
-					)
-				}
-			}
+		// Validate the updates.
+		err := relationships.ValidateRelationshipUpdates(ctx, rwt, tupleUpdates)
+		if err != nil {
+			return rewriteError(ctx, err)
 		}
 
 		usagemetrics.SetInContext(ctx, &dispatchv1.ResponseMeta{
@@ -235,25 +235,42 @@ func (ps *permissionServer) WriteRelationships(ctx context.Context, req *v1.Writ
 			DispatchCount: uint32(len(req.OptionalPreconditions)) + 1,
 		})
 
-		if err := shared.CheckPreconditions(ctx, rwt, req.OptionalPreconditions); err != nil {
+		if err := checkPreconditions(ctx, rwt, req.OptionalPreconditions); err != nil {
 			return err
 		}
 
-		return rwt.WriteRelationships(req.Updates)
+		return rwt.WriteRelationships(ctx, tupleUpdates)
 	})
 	if err != nil {
-		return nil, rewritePermissionsError(ctx, err)
+		return nil, rewriteError(ctx, err)
+	}
+
+	// Log a metric of the counts of the different kinds of update operations.
+	updateCountByOperation := make(map[v1.RelationshipUpdate_Operation]int, 0)
+	for _, update := range req.Updates {
+		updateCountByOperation[update.Operation]++
+	}
+
+	for kind, count := range updateCountByOperation {
+		writeUpdateCounter.WithLabelValues(v1.RelationshipUpdate_Operation_name[int32(kind)]).Observe(float64(count))
 	}
 
 	return &v1.WriteRelationshipsResponse{
-		WrittenAt: zedtoken.NewFromRevision(revision),
+		WrittenAt: zedtoken.MustNewFromRevision(revision),
 	}, nil
 }
 
 func (ps *permissionServer) DeleteRelationships(ctx context.Context, req *v1.DeleteRelationshipsRequest) (*v1.DeleteRelationshipsResponse, error) {
+	if len(req.OptionalPreconditions) > int(ps.config.MaxPreconditionsCount) {
+		return nil, rewriteError(
+			ctx,
+			NewExceedsMaximumPreconditionsErr(uint16(len(req.OptionalPreconditions)), ps.config.MaxPreconditionsCount),
+		)
+	}
+
 	ds := datastoremw.MustFromContext(ctx)
 
-	revision, err := ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
+	revision, err := ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
 		if err := ps.checkFilterNamespaces(ctx, req.RelationshipFilter, rwt); err != nil {
 			return err
 		}
@@ -263,54 +280,17 @@ func (ps *permissionServer) DeleteRelationships(ctx context.Context, req *v1.Del
 			DispatchCount: uint32(len(req.OptionalPreconditions)) + 1,
 		})
 
-		if err := shared.CheckPreconditions(ctx, rwt, req.OptionalPreconditions); err != nil {
+		if err := checkPreconditions(ctx, rwt, req.OptionalPreconditions); err != nil {
 			return err
 		}
 
-		return rwt.DeleteRelationships(req.RelationshipFilter)
+		return rwt.DeleteRelationships(ctx, req.RelationshipFilter)
 	})
 	if err != nil {
-		return nil, rewritePermissionsError(ctx, err)
+		return nil, rewriteError(ctx, err)
 	}
 
 	return &v1.DeleteRelationshipsResponse{
-		DeletedAt: zedtoken.NewFromRevision(revision),
+		DeletedAt: zedtoken.MustNewFromRevision(revision),
 	}, nil
-}
-
-func rewritePermissionsError(ctx context.Context, err error) error {
-	var nsNotFoundError sharederrors.UnknownNamespaceError
-	var relNotFoundError sharederrors.UnknownRelationError
-
-	switch {
-	case errors.As(err, &nsNotFoundError):
-		fallthrough
-	case errors.As(err, &relNotFoundError):
-		fallthrough
-	case errors.As(err, &shared.ErrPreconditionFailed{}):
-		return status.Errorf(codes.FailedPrecondition, "failed precondition: %s", err)
-
-	case errors.As(err, &graph.ErrInvalidArgument{}):
-		return status.Errorf(codes.InvalidArgument, "%s", err)
-
-	case errors.As(err, &graph.ErrRequestCanceled{}):
-		return status.Errorf(codes.Canceled, "request canceled: %s", err)
-
-	case errors.As(err, &datastore.ErrInvalidRevision{}):
-		return status.Errorf(codes.OutOfRange, "invalid zedtoken: %s", err)
-
-	case errors.As(err, &datastore.ErrReadOnly{}):
-		return serviceerrors.ErrServiceReadOnly
-
-	case errors.As(err, &graph.ErrRelationMissingTypeInfo{}):
-		return status.Errorf(codes.FailedPrecondition, "failed precondition: %s", err)
-
-	case errors.As(err, &graph.ErrAlwaysFail{}):
-		log.Ctx(ctx).Err(err)
-		return status.Errorf(codes.Internal, "internal error: %s", err)
-
-	default:
-		log.Ctx(ctx).Err(err).Msg("received unexpected error")
-		return err
-	}
 }

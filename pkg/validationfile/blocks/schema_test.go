@@ -41,6 +41,7 @@ func TestParseSchema(t *testing.T) {
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			ps := ParsedSchema{}
 			err := yamlv3.Unmarshal([]byte(tt.contents), &ps)
@@ -49,8 +50,11 @@ func TestParseSchema(t *testing.T) {
 				require.Contains(t, err.Error(), tt.expectedError)
 			} else {
 				require.Nil(t, err)
-				require.Equal(t, tt.expectedDefCount, len(ps.Definitions))
-				require.Equal(t, tt.contents, ps.Schema)
+				if tt.expectedDefCount > 0 {
+					require.NotNil(t, ps.CompiledSchema)
+					require.Equal(t, tt.expectedDefCount, len(ps.CompiledSchema.OrderedDefinitions))
+					require.Equal(t, tt.contents, ps.Schema)
+				}
 			}
 		})
 	}

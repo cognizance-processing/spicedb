@@ -6,12 +6,12 @@ import (
 	"sync"
 	"time"
 
-	grpcauth "github.com/grpc-ecosystem/go-grpc-middleware/auth"
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
-	"github.com/rs/zerolog/log"
+	grpcauth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"google.golang.org/grpc"
 
 	"github.com/authzed/spicedb/internal/datastore/memdb"
+	log "github.com/authzed/spicedb/internal/logging"
 	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
 	"github.com/authzed/spicedb/pkg/datastore"
 	"github.com/authzed/spicedb/pkg/validationfile"
@@ -38,6 +38,10 @@ func NewMiddleware(configFilePaths []string) *MiddlewareForTesting {
 	}
 }
 
+type squashable interface {
+	SquashRevisionsForTesting()
+}
+
 func (m *MiddlewareForTesting) getOrCreateDatastore(ctx context.Context) (datastore.Datastore, error) {
 	tokenStr, _ := grpcauth.AuthFromMD(ctx, "bearer")
 	tokenDatastore, ok := m.datastoreByToken.Load(tokenStr)
@@ -45,19 +49,21 @@ func (m *MiddlewareForTesting) getOrCreateDatastore(ctx context.Context) (datast
 		return tokenDatastore.(datastore.Datastore), nil
 	}
 
-	log.Debug().Str("token", tokenStr).Msg("initializing new upstream for token")
+	log.Ctx(ctx).Debug().Str("token", tokenStr).Msg("initializing new upstream for token")
 	ds, err := memdb.NewMemdbDatastore(0, revisionQuantization, gcWindow)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init datastore: %w", err)
 	}
 
-	_, _, err = validationfile.PopulateFromFiles(ds, m.configFilePaths)
+	_, _, err = validationfile.PopulateFromFiles(ctx, ds, m.configFilePaths)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config files: %w", err)
 	}
 
-	m.datastoreByToken.Store(tokenStr, ds)
+	// Squash the revisions so that the caller sees all the populated data.
+	ds.(squashable).SquashRevisionsForTesting()
 
+	m.datastoreByToken.Store(tokenStr, ds)
 	return ds, nil
 }
 

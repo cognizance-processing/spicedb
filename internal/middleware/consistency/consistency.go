@@ -7,14 +7,13 @@ import (
 	"strings"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/rs/zerolog/log"
-	"github.com/shopspring/decimal"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
+	log "github.com/authzed/spicedb/internal/logging"
 	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/services/serviceerrors"
+	"github.com/authzed/spicedb/internal/services/shared"
 	"github.com/authzed/spicedb/pkg/datastore"
 	"github.com/authzed/spicedb/pkg/zedtoken"
 )
@@ -39,25 +38,18 @@ func ContextWithHandle(ctx context.Context) context.Context {
 	return context.WithValue(ctx, revisionKey, &revisionHandle{})
 }
 
-// RevisionFromContext reads the selected revision out of a context.Context and returns nil if it
-// does not exist.
-func RevisionFromContext(ctx context.Context) *decimal.Decimal {
+// RevisionFromContext reads the selected revision out of a context.Context, computes a zedtoken
+// from it, and returns an error if it has not been set on the context.
+func RevisionFromContext(ctx context.Context) (datastore.Revision, *v1.ZedToken, error) {
 	if c := ctx.Value(revisionKey); c != nil {
 		handle := c.(*revisionHandle)
-		return &handle.revision
-	}
-	return nil
-}
-
-// MustRevisionFromContext reads the selected revision out of a context.Context, computes a zedtoken
-// from it, and panics if it has not been set on the context.
-func MustRevisionFromContext(ctx context.Context) (decimal.Decimal, *v1.ZedToken) {
-	rev := RevisionFromContext(ctx)
-	if rev == nil {
-		panic("consistency middleware did not inject revision")
+		rev := handle.revision
+		if rev != nil {
+			return rev, zedtoken.MustNewFromRevision(rev), nil
+		}
 	}
 
-	return *rev, zedtoken.NewFromRevision(*rev)
+	return nil, nil, fmt.Errorf("consistency middleware did not inject revision")
 }
 
 // AddRevisionToContext adds a revision to the given context, based on the consistency block found
@@ -67,23 +59,8 @@ func AddRevisionToContext(ctx context.Context, req interface{}, ds datastore.Dat
 	case hasConsistency:
 		return addRevisionToContextFromConsistency(ctx, req, ds)
 	default:
-		return addHeadRevision(ctx, ds)
-	}
-}
-
-// addHeadRevision sets the value of the revision in the context to the current head revision in the datastore
-func addHeadRevision(ctx context.Context, ds datastore.Datastore) error {
-	handle := ctx.Value(revisionKey)
-	if handle == nil {
 		return nil
 	}
-
-	revision, err := ds.HeadRevision(ctx)
-	if err != nil {
-		return rewriteDatastoreError(ctx, err)
-	}
-	handle.(*revisionHandle).revision = revision
-	return nil
 }
 
 // addRevisionToContextFromConsistency adds a revision to the given context, based on the consistency block found
@@ -94,7 +71,7 @@ func addRevisionToContextFromConsistency(ctx context.Context, req hasConsistency
 		return nil
 	}
 
-	var revision decimal.Decimal
+	var revision datastore.Revision
 	consistency := req.GetConsistency()
 
 	switch {
@@ -125,7 +102,7 @@ func addRevisionToContextFromConsistency(ctx context.Context, req hasConsistency
 
 	case consistency.GetAtExactSnapshot() != nil:
 		// Exact snapshot: Use the revision as encoded in the zed token.
-		requestedRev, err := zedtoken.DecodeRevision(consistency.GetAtExactSnapshot())
+		requestedRev, err := zedtoken.DecodeRevision(consistency.GetAtExactSnapshot(), ds)
 		if err != nil {
 			return errInvalidZedToken
 		}
@@ -198,45 +175,46 @@ func (s *recvWrapper) RecvMsg(m interface{}) error {
 	}
 	ds := datastoremw.MustFromContext(s.ctx)
 
-	if err := AddRevisionToContext(s.ctx, m, ds); err != nil {
-		return err
-	}
-
-	return nil
+	return AddRevisionToContext(s.ctx, m, ds)
 }
 
-func pickBestRevision(ctx context.Context, requested *v1.ZedToken, ds datastore.Datastore) (decimal.Decimal, error) {
+func pickBestRevision(ctx context.Context, requested *v1.ZedToken, ds datastore.Datastore) (datastore.Revision, error) {
 	// Calculate a revision as we see fit
 	databaseRev, err := ds.OptimizedRevision(ctx)
 	if err != nil {
-		return decimal.Zero, err
+		return datastore.NoRevision, err
 	}
 
 	if requested != nil {
-		requestedRev, err := zedtoken.DecodeRevision(requested)
+		requestedRev, err := zedtoken.DecodeRevision(requested, ds)
 		if err != nil {
-			return decimal.Zero, errInvalidZedToken
+			return datastore.NoRevision, errInvalidZedToken
 		}
 
-		if requestedRev.GreaterThan(databaseRev) {
-			return requestedRev, nil
+		if databaseRev.GreaterThan(requestedRev) {
+			return databaseRev, nil
 		}
-		return databaseRev, nil
+		return requestedRev, nil
 	}
 
 	return databaseRev, nil
 }
 
 func rewriteDatastoreError(ctx context.Context, err error) error {
+	// Check if the error can be directly used.
+	if _, ok := status.FromError(err); ok {
+		return err
+	}
+
 	switch {
 	case errors.As(err, &datastore.ErrInvalidRevision{}):
 		return status.Errorf(codes.OutOfRange, "invalid revision: %s", err)
 
 	case errors.As(err, &datastore.ErrReadOnly{}):
-		return serviceerrors.ErrServiceReadOnly
+		return shared.ErrServiceReadOnly
 
 	default:
-		log.Ctx(ctx).Err(err)
+		log.Ctx(ctx).Err(err).Msg("unexpected consistency middleware error")
 		return err
 	}
 }

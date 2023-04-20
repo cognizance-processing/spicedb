@@ -1,5 +1,5 @@
-//go:build docker
-// +build docker
+//go:build docker && image
+// +build docker,image
 
 package main
 
@@ -20,6 +20,7 @@ import (
 )
 
 func TestServe(t *testing.T) {
+	t.Parallel()
 	requireParent := require.New(t)
 
 	tester, err := newTester(t,
@@ -30,6 +31,7 @@ func TestServe(t *testing.T) {
 			ExposedPorts: []string{"50051/tcp"},
 		},
 		"firstkey",
+		false,
 	)
 	requireParent.NoError(err)
 	defer tester.cleanup()
@@ -40,6 +42,7 @@ func TestServe(t *testing.T) {
 		"secondkey":  true,
 		"anotherkey": false,
 	} {
+		key := key
 		t.Run(key, func(t *testing.T) {
 			require := require.New(t)
 

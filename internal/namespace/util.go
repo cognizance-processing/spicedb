@@ -3,6 +3,8 @@ package namespace
 import (
 	"context"
 
+	"github.com/authzed/spicedb/pkg/util"
+
 	"github.com/authzed/spicedb/pkg/datastore"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
@@ -19,7 +21,7 @@ func ReadNamespaceAndRelation(
 	relation string,
 	ds datastore.Reader,
 ) (*core.NamespaceDefinition, *core.Relation, error) {
-	config, _, err := ds.ReadNamespace(ctx, namespace)
+	config, _, err := ds.ReadNamespaceByName(ctx, namespace)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -46,7 +48,7 @@ func CheckNamespaceAndRelation(
 	allowEllipsis bool,
 	ds datastore.Reader,
 ) error {
-	config, _, err := ds.ReadNamespace(ctx, namespace)
+	config, _, err := ds.ReadNamespaceByName(ctx, namespace)
 	if err != nil {
 		return err
 	}
@@ -70,11 +72,30 @@ func ReadNamespaceAndTypes(
 	nsName string,
 	ds datastore.Reader,
 ) (*core.NamespaceDefinition, *TypeSystem, error) {
-	nsDef, _, err := ds.ReadNamespace(ctx, nsName)
+	nsDef, _, err := ds.ReadNamespaceByName(ctx, nsName)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	ts, terr := BuildNamespaceTypeSystemForDatastore(nsDef, ds)
+	ts, terr := NewNamespaceTypeSystem(nsDef, ResolverForDatastoreReader(ds))
 	return nsDef, ts, terr
+}
+
+// ListReferencedNamespaces returns the names of all namespaces referenced in the
+// given namespace definitions. This includes the namespaces themselves, as well as
+// any found in type information on relations.
+func ListReferencedNamespaces(nsdefs []*core.NamespaceDefinition) []string {
+	referencedNamespaceNamesSet := util.NewSet[string]()
+	for _, nsdef := range nsdefs {
+		referencedNamespaceNamesSet.Add(nsdef.Name)
+
+		for _, relation := range nsdef.Relation {
+			if relation.GetTypeInformation() != nil {
+				for _, allowedRel := range relation.GetTypeInformation().AllowedDirectRelations {
+					referencedNamespaceNamesSet.Add(allowedRel.GetNamespace())
+				}
+			}
+		}
+	}
+	return referencedNamespaceNamesSet.AsSlice()
 }

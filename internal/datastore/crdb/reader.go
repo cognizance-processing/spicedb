@@ -7,12 +7,12 @@ import (
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-	"github.com/jackc/pgx/v4"
-	"google.golang.org/protobuf/proto"
+	"github.com/jackc/pgx/v5"
 
 	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/options"
+	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/options"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
@@ -22,7 +22,7 @@ const (
 )
 
 var (
-	queryReadNamespace = psql.Select(colConfig, colTimestamp).From(tableNamespace)
+	queryReadNamespace = psql.Select(colConfig, colTimestamp)
 
 	queryTuples = psql.Select(
 		colNamespace,
@@ -31,32 +31,35 @@ var (
 		colUsersetNamespace,
 		colUsersetObjectID,
 		colUsersetRelation,
-	).From(tableTuple)
+		colCaveatContextName,
+		colCaveatContext,
+	)
 
-	schema = common.SchemaInformation{
-		ColNamespace:        colNamespace,
-		ColObjectID:         colObjectID,
-		ColRelation:         colRelation,
-		ColUsersetNamespace: colUsersetNamespace,
-		ColUsersetObjectID:  colUsersetObjectID,
-		ColUsersetRelation:  colUsersetRelation,
-	}
+	schema = common.NewSchemaInformation(
+		colNamespace,
+		colObjectID,
+		colRelation,
+		colUsersetNamespace,
+		colUsersetObjectID,
+		colUsersetRelation,
+		colCaveatContextName,
+		common.ExpandedLogicComparison,
+	)
 )
 
 type crdbReader struct {
-	txSource      common.TxFactory
+	txSource      pgxcommon.TxFactory
 	querySplitter common.TupleQuerySplitter
 	keyer         overlapKeyer
 	overlapKeySet keySet
 	execute       executeTxRetryFunc
+	fromBuilder   func(query sq.SelectBuilder, fromStr string) sq.SelectBuilder
 }
 
-func (cr *crdbReader) ReadNamespace(
+func (cr *crdbReader) ReadNamespaceByName(
 	ctx context.Context,
 	nsName string,
 ) (*core.NamespaceDefinition, datastore.Revision, error) {
-	ctx = datastore.SeparateContextWithTracing(ctx)
-
 	var config *core.NamespaceDefinition
 	var timestamp time.Time
 	if err := cr.execute(ctx, func(ctx context.Context) error {
@@ -66,7 +69,7 @@ func (cr *crdbReader) ReadNamespace(
 		}
 		defer txCleanup(ctx)
 
-		config, timestamp, err = loadNamespace(ctx, tx, nsName)
+		config, timestamp, err = cr.loadNamespace(ctx, tx, nsName)
 		if err != nil {
 			if errors.As(err, &datastore.ErrNamespaceNotFound{}) {
 				return err
@@ -84,10 +87,8 @@ func (cr *crdbReader) ReadNamespace(
 	return config, revisionFromTimestamp(timestamp), nil
 }
 
-func (cr *crdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefinition, error) {
-	ctx = datastore.SeparateContextWithTracing(ctx)
-
-	var nsDefs []*core.NamespaceDefinition
+func (cr *crdbReader) ListAllNamespaces(ctx context.Context) ([]datastore.RevisionedNamespace, error) {
+	var nsDefs []datastore.RevisionedNamespace
 	if err := cr.execute(ctx, func(ctx context.Context) error {
 		tx, txCleanup, err := cr.txSource(ctx)
 		if err != nil {
@@ -95,7 +96,7 @@ func (cr *crdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefi
 		}
 		defer txCleanup(ctx)
 
-		nsDefs, err = loadAllNamespaces(ctx, tx)
+		nsDefs, err = loadAllNamespaces(ctx, tx, cr.fromBuilder)
 		if err != nil {
 			return err
 		}
@@ -106,7 +107,36 @@ func (cr *crdbReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefi
 	}
 
 	for _, nsDef := range nsDefs {
-		cr.addOverlapKey(nsDef.Name)
+		cr.addOverlapKey(nsDef.Definition.Name)
+	}
+	return nsDefs, nil
+}
+
+func (cr *crdbReader) LookupNamespacesWithNames(ctx context.Context, nsNames []string) ([]datastore.RevisionedNamespace, error) {
+	if len(nsNames) == 0 {
+		return nil, nil
+	}
+
+	var nsDefs []datastore.RevisionedNamespace
+	if err := cr.execute(ctx, func(ctx context.Context) error {
+		tx, txCleanup, err := cr.txSource(ctx)
+		if err != nil {
+			return err
+		}
+		defer txCleanup(ctx)
+
+		nsDefs, err = cr.lookupNamespaces(ctx, tx, nsNames)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf(errUnableToListNamespaces, err)
+	}
+
+	for _, nsDef := range nsDefs {
+		cr.addOverlapKey(nsDef.Definition.Name)
 	}
 	return nsDefs, nil
 }
@@ -116,7 +146,11 @@ func (cr *crdbReader) QueryRelationships(
 	filter datastore.RelationshipsFilter,
 	opts ...options.QueryOptionsOption,
 ) (iter datastore.RelationshipIterator, err error) {
-	qBuilder := common.NewSchemaQueryFilterer(schema, queryTuples).FilterWithRelationshipsFilter(filter)
+	query := cr.fromBuilder(queryTuples, tableTuple)
+	qBuilder, err := common.NewSchemaQueryFilterer(schema, query).FilterWithRelationshipsFilter(filter)
+	if err != nil {
+		return nil, err
+	}
 
 	if err := cr.execute(ctx, func(ctx context.Context) error {
 		iter, err = cr.querySplitter.SplitAndExecuteQuery(ctx, qBuilder, opts...)
@@ -133,8 +167,12 @@ func (cr *crdbReader) ReverseQueryRelationships(
 	subjectsFilter datastore.SubjectsFilter,
 	opts ...options.ReverseQueryOptionsOption,
 ) (iter datastore.RelationshipIterator, err error) {
-	qBuilder := common.NewSchemaQueryFilterer(schema, queryTuples).
-		FilterWithSubjectsFilter(subjectsFilter)
+	query := cr.fromBuilder(queryTuples, tableTuple)
+	qBuilder, err := common.NewSchemaQueryFilterer(schema, query).
+		FilterWithSubjectsSelectors(subjectsFilter.AsSelector())
+	if err != nil {
+		return nil, err
+	}
 
 	queryOpts := options.NewReverseQueryOptionsWithOptions(opts...)
 
@@ -156,8 +194,8 @@ func (cr *crdbReader) ReverseQueryRelationships(
 	return
 }
 
-func loadNamespace(ctx context.Context, tx pgx.Tx, nsName string) (*core.NamespaceDefinition, time.Time, error) {
-	query := queryReadNamespace.Where(sq.Eq{colNamespace: nsName})
+func (cr crdbReader) loadNamespace(ctx context.Context, tx pgxcommon.DBReader, nsName string) (*core.NamespaceDefinition, time.Time, error) {
+	query := cr.fromBuilder(queryReadNamespace, tableNamespace).Where(sq.Eq{colNamespace: nsName})
 
 	sql, args, err := query.ToSql()
 	if err != nil {
@@ -174,23 +212,27 @@ func loadNamespace(ctx context.Context, tx pgx.Tx, nsName string) (*core.Namespa
 	}
 
 	loaded := &core.NamespaceDefinition{}
-	err = proto.Unmarshal(config, loaded)
-	if err != nil {
+	if err := loaded.UnmarshalVT(config); err != nil {
 		return nil, time.Time{}, err
 	}
 
 	return loaded, timestamp, nil
 }
 
-func loadAllNamespaces(ctx context.Context, tx pgx.Tx) ([]*core.NamespaceDefinition, error) {
-	query := queryReadNamespace
+func (cr crdbReader) lookupNamespaces(ctx context.Context, tx pgxcommon.DBReader, nsNames []string) ([]datastore.RevisionedNamespace, error) {
+	clause := sq.Or{}
+	for _, nsName := range nsNames {
+		clause = append(clause, sq.Eq{colNamespace: nsName})
+	}
+
+	query := cr.fromBuilder(queryReadNamespace, tableNamespace).Where(clause)
 
 	sql, args, err := query.ToSql()
 	if err != nil {
 		return nil, err
 	}
 
-	var nsDefs []*core.NamespaceDefinition
+	var nsDefs []datastore.RevisionedNamespace
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
 		return nil, err
@@ -204,12 +246,55 @@ func loadAllNamespaces(ctx context.Context, tx pgx.Tx) ([]*core.NamespaceDefinit
 			return nil, err
 		}
 
-		var loaded core.NamespaceDefinition
-		if err := proto.Unmarshal(config, &loaded); err != nil {
+		loaded := &core.NamespaceDefinition{}
+		if err := loaded.UnmarshalVT(config); err != nil {
 			return nil, fmt.Errorf(errUnableToReadConfig, err)
 		}
 
-		nsDefs = append(nsDefs, &loaded)
+		nsDefs = append(nsDefs, datastore.RevisionedNamespace{
+			Definition:          loaded,
+			LastWrittenRevision: revisionFromTimestamp(timestamp),
+		})
+	}
+
+	if rows.Err() != nil {
+		return nil, fmt.Errorf(errUnableToReadConfig, rows.Err())
+	}
+
+	return nsDefs, nil
+}
+
+func loadAllNamespaces(ctx context.Context, tx pgxcommon.DBReader, fromBuilder func(sq.SelectBuilder, string) sq.SelectBuilder) ([]datastore.RevisionedNamespace, error) {
+	query := fromBuilder(queryReadNamespace, tableNamespace)
+
+	sql, args, err := query.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	var nsDefs []datastore.RevisionedNamespace
+	rows, err := tx.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var config []byte
+		var timestamp time.Time
+		if err := rows.Scan(&config, &timestamp); err != nil {
+			return nil, err
+		}
+
+		loaded := &core.NamespaceDefinition{}
+		if err := loaded.UnmarshalVT(config); err != nil {
+			return nil, fmt.Errorf(errUnableToReadConfig, err)
+		}
+
+		nsDefs = append(nsDefs, datastore.RevisionedNamespace{
+			Definition:          loaded,
+			LastWrittenRevision: revisionFromTimestamp(timestamp),
+		})
 	}
 
 	if rows.Err() != nil {

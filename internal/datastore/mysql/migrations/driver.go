@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/authzed/spicedb/internal/datastore/common"
+
 	sq "github.com/Masterminds/squirrel"
 	sqlDriver "github.com/go-sql-driver/mysql"
-	"github.com/rs/zerolog/log"
 
+	log "github.com/authzed/spicedb/internal/logging"
 	"github.com/authzed/spicedb/pkg/migrate"
 )
 
@@ -57,7 +59,7 @@ func NewMySQLDriverFromDB(db *sql.DB, tablePrefix string) *MySQLDriver {
 
 // revisionToColumnName generates the column name that will denote a given migration revision
 func revisionToColumnName(revision string) string {
-	return fmt.Sprintf("%s%s", migrationVersionColumnPrefix, revision)
+	return migrationVersionColumnPrefix + revision
 }
 
 func columnNameToRevision(columnName string) (string, bool) {
@@ -72,7 +74,7 @@ func columnNameToRevision(columnName string) (string, bool) {
 func (driver *MySQLDriver) Version(ctx context.Context) (string, error) {
 	query, args, err := sb.Select("*").From(driver.migrationVersion()).ToSql()
 	if err != nil {
-		return "", fmt.Errorf("unable to load driver migration revision: %w", err)
+		return "", fmt.Errorf("unable to generate query for revision: %w", err)
 	}
 
 	rows, err := driver.db.QueryContext(ctx, query, args...)
@@ -81,15 +83,15 @@ func (driver *MySQLDriver) Version(ctx context.Context) (string, error) {
 		if errors.As(err, &mysqlError) && mysqlError.Number == mysqlMissingTableErrorNumber {
 			return "", nil
 		}
-		return "", fmt.Errorf("unable to load driver migration revision: %w", err)
+		return "", fmt.Errorf("unable to query revision: %w", err)
 	}
-	defer LogOnError(ctx, rows.Close)
+	defer common.LogOnError(ctx, rows.Close)
 	if rows.Err() != nil {
-		return "", fmt.Errorf("unable to load driver migration revision: %w", rows.Err())
+		return "", fmt.Errorf("unable to load revision row: %w", rows.Err())
 	}
 	cols, err := rows.Columns()
 	if err != nil {
-		return "", fmt.Errorf("failed to get columns: %w", err)
+		return "", fmt.Errorf("failed to get columns from revision row: %w", err)
 	}
 
 	for _, col := range cols {
@@ -123,17 +125,12 @@ func BeginTxFunc(ctx context.Context, db *sql.DB, txOptions *sql.TxOptions, f fu
 	if err != nil {
 		return err
 	}
-	defer LogOnError(ctx, tx.Rollback)
 
 	if err := f(tx); err != nil {
-		return err
+		return errors.Join(err, tx.Rollback())
 	}
 
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	return nil
+	return tx.Commit()
 }
 
 // WriteVersion overwrites the _meta_version_ column name which encodes the version
@@ -153,14 +150,6 @@ func (driver *MySQLDriver) WriteVersion(ctx context.Context, txWrapper TxWrapper
 
 func (driver *MySQLDriver) Close(_ context.Context) error {
 	return driver.db.Close()
-}
-
-// LogOnError executes the function and logs the error.
-// Useful to avoid silently ignoring errors in defer statements
-func LogOnError(ctx context.Context, f func() error) {
-	if err := f(); err != nil {
-		log.Ctx(ctx).Error().Err(err)
-	}
 }
 
 var _ migrate.Driver[Wrapper, TxWrapper] = &MySQLDriver{}

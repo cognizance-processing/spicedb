@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/commonerrors"
+	"github.com/authzed/spicedb/pkg/spiceerrors"
 )
 
 func TestDecodeValidationFile(t *testing.T) {
@@ -81,6 +81,7 @@ validation:
 	}
 
 	for _, tt := range tests {
+		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			decoded, err := DecodeValidationFile([]byte(tt.contents))
 			if tt.expectedError != "" {
@@ -110,7 +111,7 @@ relationships: >-
   document:firstdoc#reader#user:fred
 `))
 
-	errWithSource, ok := commonerrors.AsErrorWithSource(err)
+	errWithSource, ok := spiceerrors.AsErrorWithSource(err)
 	require.True(t, ok)
 
 	require.Equal(t, err.Error(), "error parsing relationship `document:firstdocwriter@user:tom`")
@@ -127,7 +128,7 @@ relationships: >-
   document:firstdoc#readeruser:fred
 `))
 
-	errWithSource, ok := commonerrors.AsErrorWithSource(err)
+	errWithSource, ok := spiceerrors.AsErrorWithSource(err)
 	require.True(t, ok)
 
 	require.Equal(t, err.Error(), "error parsing relationship `document:firstdoc#readeruser:fred`")
@@ -139,18 +140,18 @@ func TestDecodeRelationshipsErrorLineNumberEventLater(t *testing.T) {
   definition user {}
 
 relationships: >-
-  document:firstdoc#writer@user:tom
+  document:firstdoc#writer@user:tom1
 
-  document:firstdoc#writer@user:tom
+  document:firstdoc#writer@user:tom2
 
-  document:firstdoc#writer@user:tom
+  document:firstdoc#writer@user:tom3
 
-  document:firstdoc#writer@user:tom
+  document:firstdoc#writer@user:tom4
 
   document:firstdoc#readeruser:fred
 `))
 
-	errWithSource, ok := commonerrors.AsErrorWithSource(err)
+	errWithSource, ok := spiceerrors.AsErrorWithSource(err)
 	require.True(t, ok)
 
 	require.Equal(t, err.Error(), "error parsing relationship `document:firstdoc#readeruser:fred`")
@@ -174,7 +175,7 @@ assertions:
     - document:seconddoc#view@user:fred
 `))
 
-	errWithSource, ok := commonerrors.AsErrorWithSource(err)
+	errWithSource, ok := spiceerrors.AsErrorWithSource(err)
 	require.True(t, ok)
 
 	require.Equal(t, err.Error(), "unexpected value `asdkjha`")
@@ -198,7 +199,7 @@ assertions:
     - document:seconddoc#view@user:fred
 `))
 
-	errWithSource, ok := commonerrors.AsErrorWithSource(err)
+	errWithSource, ok := spiceerrors.AsErrorWithSource(err)
 	require.True(t, ok)
 
 	require.Equal(t, err.Error(), "unexpected value `asdk`")

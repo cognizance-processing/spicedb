@@ -3,14 +3,16 @@ package remote
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"time"
 
-	"github.com/rs/zerolog/log"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
 
 	"github.com/authzed/spicedb/internal/dispatch"
 	"github.com/authzed/spicedb/internal/dispatch/keys"
+	log "github.com/authzed/spicedb/internal/logging"
 	"github.com/authzed/spicedb/pkg/balancer"
 	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
 )
@@ -23,20 +25,41 @@ type clusterClient interface {
 	DispatchLookupSubjects(ctx context.Context, in *v1.DispatchLookupSubjectsRequest, opts ...grpc.CallOption) (v1.DispatchService_DispatchLookupSubjectsClient, error)
 }
 
+type ClusterDispatcherConfig struct {
+	// KeyHandler is then handler to use for generating dispatch hash ring keys.
+	KeyHandler keys.Handler
+
+	// DispatchOverallTimeout is the maximum duration of a dispatched request
+	// before it should timeout.
+	DispatchOverallTimeout time.Duration
+}
+
 // NewClusterDispatcher creates a dispatcher implementation that uses the provided client
 // to dispatch requests to peer nodes in the cluster.
-func NewClusterDispatcher(client clusterClient, conn *grpc.ClientConn, keyHandler keys.Handler) dispatch.Dispatcher {
+func NewClusterDispatcher(client clusterClient, conn *grpc.ClientConn, config ClusterDispatcherConfig) dispatch.Dispatcher {
+	keyHandler := config.KeyHandler
 	if keyHandler == nil {
 		keyHandler = &keys.DirectKeyHandler{}
 	}
 
-	return &clusterDispatcher{clusterClient: client, conn: conn, keyHandler: keyHandler}
+	dispatchOverallTimeout := config.DispatchOverallTimeout
+	if dispatchOverallTimeout <= 0 {
+		dispatchOverallTimeout = 60 * time.Second
+	}
+
+	return &clusterDispatcher{
+		clusterClient:          client,
+		conn:                   conn,
+		keyHandler:             keyHandler,
+		dispatchOverallTimeout: dispatchOverallTimeout,
+	}
 }
 
 type clusterDispatcher struct {
-	clusterClient clusterClient
-	conn          *grpc.ClientConn
-	keyHandler    keys.Handler
+	clusterClient          clusterClient
+	conn                   *grpc.ClientConn
+	keyHandler             keys.Handler
+	dispatchOverallTimeout time.Duration
 }
 
 func (cr *clusterDispatcher) DispatchCheck(ctx context.Context, req *v1.DispatchCheckRequest) (*v1.DispatchCheckResponse, error) {
@@ -44,13 +67,17 @@ func (cr *clusterDispatcher) DispatchCheck(ctx context.Context, req *v1.Dispatch
 		return &v1.DispatchCheckResponse{Metadata: emptyMetadata}, err
 	}
 
-	requestKey, err := cr.keyHandler.ComputeCheckKey(ctx, req)
+	requestKey, err := cr.keyHandler.CheckDispatchKey(ctx, req)
 	if err != nil {
 		return &v1.DispatchCheckResponse{Metadata: emptyMetadata}, err
 	}
 
-	ctx = context.WithValue(ctx, balancer.CtxKey, []byte(requestKey))
-	resp, err := cr.clusterClient.DispatchCheck(ctx, req)
+	ctx = context.WithValue(ctx, balancer.CtxKey, requestKey)
+
+	withTimeout, cancelFn := context.WithTimeout(ctx, cr.dispatchOverallTimeout)
+	defer cancelFn()
+
+	resp, err := cr.clusterClient.DispatchCheck(withTimeout, req)
 	if err != nil {
 		return &v1.DispatchCheckResponse{Metadata: requestFailureMetadata}, err
 	}
@@ -62,8 +89,18 @@ func (cr *clusterDispatcher) DispatchExpand(ctx context.Context, req *v1.Dispatc
 	if err := dispatch.CheckDepth(ctx, req); err != nil {
 		return &v1.DispatchExpandResponse{Metadata: emptyMetadata}, err
 	}
-	ctx = context.WithValue(ctx, balancer.CtxKey, []byte(dispatch.ExpandRequestToKey(req)))
-	resp, err := cr.clusterClient.DispatchExpand(ctx, req)
+
+	requestKey, err := cr.keyHandler.ExpandDispatchKey(ctx, req)
+	if err != nil {
+		return &v1.DispatchExpandResponse{Metadata: emptyMetadata}, err
+	}
+
+	ctx = context.WithValue(ctx, balancer.CtxKey, requestKey)
+
+	withTimeout, cancelFn := context.WithTimeout(ctx, cr.dispatchOverallTimeout)
+	defer cancelFn()
+
+	resp, err := cr.clusterClient.DispatchExpand(withTimeout, req)
 	if err != nil {
 		return &v1.DispatchExpandResponse{Metadata: requestFailureMetadata}, err
 	}
@@ -75,8 +112,18 @@ func (cr *clusterDispatcher) DispatchLookup(ctx context.Context, req *v1.Dispatc
 	if err := dispatch.CheckDepth(ctx, req); err != nil {
 		return &v1.DispatchLookupResponse{Metadata: emptyMetadata}, err
 	}
-	ctx = context.WithValue(ctx, balancer.CtxKey, []byte(dispatch.LookupRequestToKey(req)))
-	resp, err := cr.clusterClient.DispatchLookup(ctx, req)
+
+	requestKey, err := cr.keyHandler.LookupResourcesDispatchKey(ctx, req)
+	if err != nil {
+		return &v1.DispatchLookupResponse{Metadata: emptyMetadata}, err
+	}
+
+	ctx = context.WithValue(ctx, balancer.CtxKey, requestKey)
+
+	withTimeout, cancelFn := context.WithTimeout(ctx, cr.dispatchOverallTimeout)
+	defer cancelFn()
+
+	resp, err := cr.clusterClient.DispatchLookup(withTimeout, req)
 	if err != nil {
 		return &v1.DispatchLookupResponse{Metadata: requestFailureMetadata}, err
 	}
@@ -88,81 +135,104 @@ func (cr *clusterDispatcher) DispatchReachableResources(
 	req *v1.DispatchReachableResourcesRequest,
 	stream dispatch.ReachableResourcesStream,
 ) error {
-	ctx := context.WithValue(stream.Context(), balancer.CtxKey, []byte(dispatch.ReachableResourcesRequestToKey(req)))
+	requestKey, err := cr.keyHandler.ReachableResourcesDispatchKey(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.WithValue(stream.Context(), balancer.CtxKey, requestKey)
 	stream = dispatch.StreamWithContext(ctx, stream)
 
 	if err := dispatch.CheckDepth(ctx, req); err != nil {
 		return err
 	}
 
-	client, err := cr.clusterClient.DispatchReachableResources(ctx, req)
+	withTimeout, cancelFn := context.WithTimeout(ctx, cr.dispatchOverallTimeout)
+	defer cancelFn()
+
+	client, err := cr.clusterClient.DispatchReachableResources(withTimeout, req)
 	if err != nil {
 		return err
 	}
 
 	for {
-		result, err := client.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+		select {
+		case <-withTimeout.Done():
+			return withTimeout.Err()
 
-		if err != nil {
-			return err
-		}
+		default:
+			result, err := client.Recv()
+			if errors.Is(err, io.EOF) {
+				return nil
+			} else if err != nil {
+				return err
+			}
 
-		serr := stream.Publish(result)
-		if serr != nil {
-			return serr
+			serr := stream.Publish(result)
+			if serr != nil {
+				return serr
+			}
 		}
 	}
-
-	return nil
 }
 
 func (cr *clusterDispatcher) DispatchLookupSubjects(
 	req *v1.DispatchLookupSubjectsRequest,
 	stream dispatch.LookupSubjectsStream,
 ) error {
-	ctx := context.WithValue(stream.Context(), balancer.CtxKey, []byte(dispatch.LookupSubjectsRequestToKey(req)))
+	requestKey, err := cr.keyHandler.LookupSubjectsDispatchKey(stream.Context(), req)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.WithValue(stream.Context(), balancer.CtxKey, requestKey)
 	stream = dispatch.StreamWithContext(ctx, stream)
 
 	if err := dispatch.CheckDepth(ctx, req); err != nil {
 		return err
 	}
 
-	client, err := cr.clusterClient.DispatchLookupSubjects(ctx, req)
+	withTimeout, cancelFn := context.WithTimeout(ctx, cr.dispatchOverallTimeout)
+	defer cancelFn()
+
+	client, err := cr.clusterClient.DispatchLookupSubjects(withTimeout, req)
 	if err != nil {
 		return err
 	}
 
 	for {
-		result, err := client.Recv()
-		if errors.Is(err, io.EOF) {
-			break
-		}
+		select {
+		case <-withTimeout.Done():
+			return withTimeout.Err()
 
-		if err != nil {
-			return err
-		}
+		default:
+			result, err := client.Recv()
+			if errors.Is(err, io.EOF) {
+				return nil
+			} else if err != nil {
+				return err
+			}
 
-		serr := stream.Publish(result)
-		if serr != nil {
-			return serr
+			serr := stream.Publish(result)
+			if serr != nil {
+				return serr
+			}
 		}
 	}
-
-	return nil
 }
 
 func (cr *clusterDispatcher) Close() error {
 	return nil
 }
 
-// IsReady returns whether the underlying dispatch connection is available
-func (cr *clusterDispatcher) IsReady() bool {
+// ReadyState returns whether the underlying dispatch connection is available
+func (cr *clusterDispatcher) ReadyState() dispatch.ReadyState {
 	state := cr.conn.GetState()
 	log.Trace().Interface("connection-state", state).Msg("checked if cluster dispatcher is ready")
-	return state == connectivity.Ready || state == connectivity.Idle
+	return dispatch.ReadyState{
+		IsReady: state == connectivity.Ready || state == connectivity.Idle,
+		Message: fmt.Sprintf("found expected state when trying to connect to cluster: %v", state),
+	}
 }
 
 // Always verify that we implement the interface

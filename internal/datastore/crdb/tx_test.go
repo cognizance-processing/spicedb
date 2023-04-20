@@ -1,5 +1,5 @@
-//go:build ci
-// +build ci
+//go:build ci && docker
+// +build ci,docker
 
 package crdb
 
@@ -9,12 +9,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgconn"
-	"github.com/shopspring/decimal"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
 	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/revision"
 	"github.com/authzed/spicedb/pkg/namespace"
 )
 
@@ -117,7 +117,7 @@ func TestTxReset(t *testing.T) {
 			require := require.New(t)
 
 			ds := b.NewDatastore(t, func(engine, uri string) datastore.Datastore {
-				ds, err := NewCRDBDatastore(
+				ds, err := newCRDBDatastore(
 					uri,
 					GCWindow(24*time.Hour),
 					RevisionQuantization(5*time.Second),
@@ -130,20 +130,20 @@ func TestTxReset(t *testing.T) {
 			defer ds.Close()
 
 			ctx := context.Background()
-			ok, err := ds.IsReady(ctx)
+			r, err := ds.ReadyState(ctx)
 			require.NoError(err)
-			require.True(ok)
+			require.True(r.IsReady)
 
 			// WriteNamespace utilizes execute so we'll use it
-			revision, err := ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
-				return rwt.WriteNamespaces(testUserNS)
+			rev, err := ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
+				return rwt.WriteNamespaces(ctx, testUserNS)
 			})
 			if tt.expectError {
 				require.Error(err)
-				require.Equal(datastore.NoRevision, revision)
+				require.Equal(datastore.NoRevision, rev)
 			} else {
 				require.NoError(err)
-				require.True(revision.GreaterThan(decimal.Zero))
+				require.True(rev.GreaterThan(revision.NoRevision))
 			}
 		})
 	}

@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/authzed/spicedb/internal/datastore/mysql/migrations"
-	"github.com/authzed/spicedb/pkg/datastore"
-
 	"github.com/Masterminds/squirrel"
+
+	"github.com/authzed/spicedb/internal/datastore/common"
+	"github.com/authzed/spicedb/pkg/datastore"
 )
 
 const (
@@ -15,15 +15,13 @@ const (
 	informationSchemaTablesTable     = "INFORMATION_SCHEMA.TABLES"
 	informationSchemaTableNameColumn = "table_name"
 
-	analyzeTableQuery = "ANALYZE TABLE %s"
-
 	metadataIDColumn       = "id"
 	metadataUniqueIDColumn = "unique_id"
 )
 
 func (mds *Datastore) Statistics(ctx context.Context) (datastore.Stats, error) {
 	if mds.analyzeBeforeStats {
-		_, err := mds.db.ExecContext(ctx, fmt.Sprintf(analyzeTableQuery, mds.driver.RelationTuple()))
+		_, err := mds.db.ExecContext(ctx, "ANALYZE TABLE "+mds.driver.RelationTuple())
 		if err != nil {
 			return datastore.Stats{}, fmt.Errorf("unable to run ANALYZE TABLE: %w", err)
 		}
@@ -55,7 +53,6 @@ func (mds *Datastore) Statistics(ctx context.Context) (datastore.Stats, error) {
 		if err != nil {
 			return datastore.Stats{}, err
 		}
-		var count uint64
 		err = mds.db.QueryRowContext(ctx, query, args...).Scan(&count)
 		if err != nil {
 			return datastore.Stats{}, err
@@ -68,7 +65,7 @@ func (mds *Datastore) Statistics(ctx context.Context) (datastore.Stats, error) {
 	if err != nil {
 		return datastore.Stats{}, err
 	}
-	defer migrations.LogOnError(ctx, tx.Rollback)
+	defer common.LogOnError(ctx, tx.Rollback)
 
 	nsDefs, err := loadAllNamespaces(ctx, tx, nsQuery)
 	if err != nil {

@@ -7,11 +7,10 @@ import (
 
 	"cloud.google.com/go/spanner"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/protobuf/proto"
 
 	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/options"
 	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/datastore/options"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 )
 
@@ -38,7 +37,11 @@ func (sr spannerReader) QueryRelationships(
 	filter datastore.RelationshipsFilter,
 	opts ...options.QueryOptionsOption,
 ) (iter datastore.RelationshipIterator, err error) {
-	qBuilder := common.NewSchemaQueryFilterer(schema, queryTuples).FilterWithRelationshipsFilter(filter)
+	qBuilder, err := common.NewSchemaQueryFilterer(schema, queryTuples).FilterWithRelationshipsFilter(filter)
+	if err != nil {
+		return nil, err
+	}
+
 	return sr.querySplitter.SplitAndExecuteQuery(ctx, qBuilder, opts...)
 }
 
@@ -47,8 +50,11 @@ func (sr spannerReader) ReverseQueryRelationships(
 	subjectsFilter datastore.SubjectsFilter,
 	opts ...options.ReverseQueryOptionsOption,
 ) (iter datastore.RelationshipIterator, err error) {
-	qBuilder := common.NewSchemaQueryFilterer(schema, queryTuples).
-		FilterWithSubjectsFilter(subjectsFilter)
+	qBuilder, err := common.NewSchemaQueryFilterer(schema, queryTuples).
+		FilterWithSubjectsSelectors(subjectsFilter.AsSelector())
+	if err != nil {
+		return nil, err
+	}
 
 	queryOpts := options.NewReverseQueryOptionsWithOptions(opts...)
 
@@ -82,6 +88,8 @@ func queryExecutor(txSource txFactory) common.ExecuteQueryFunc {
 				ResourceAndRelation: &core.ObjectAndRelation{},
 				Subject:             &core.ObjectAndRelation{},
 			}
+			var caveatName spanner.NullString
+			var caveatCtx spanner.NullJSON
 			err := row.Columns(
 				&nextTuple.ResourceAndRelation.Namespace,
 				&nextTuple.ResourceAndRelation.ObjectId,
@@ -89,7 +97,14 @@ func queryExecutor(txSource txFactory) common.ExecuteQueryFunc {
 				&nextTuple.Subject.Namespace,
 				&nextTuple.Subject.ObjectId,
 				&nextTuple.Subject.Relation,
+				&caveatName,
+				&caveatCtx,
 			)
+			if err != nil {
+				return err
+			}
+
+			nextTuple.Caveat, err = ContextualizedCaveatFrom(caveatName, caveatCtx)
 			if err != nil {
 				return err
 			}
@@ -105,10 +120,7 @@ func queryExecutor(txSource txFactory) common.ExecuteQueryFunc {
 	}
 }
 
-func (sr spannerReader) ReadNamespace(ctx context.Context, nsName string) (*core.NamespaceDefinition, datastore.Revision, error) {
-	ctx, span := tracer.Start(ctx, "ReadNamespace")
-	defer span.End()
-
+func (sr spannerReader) ReadNamespaceByName(ctx context.Context, nsName string) (*core.NamespaceDefinition, datastore.Revision, error) {
 	nsKey := spanner.Key{nsName}
 	row, err := sr.txSource().ReadRow(
 		ctx,
@@ -130,22 +142,19 @@ func (sr spannerReader) ReadNamespace(ctx context.Context, nsName string) (*core
 	}
 
 	ns := &core.NamespaceDefinition{}
-	if err := proto.Unmarshal(serialized, ns); err != nil {
+	if err := ns.UnmarshalVT(serialized); err != nil {
 		return nil, datastore.NoRevision, fmt.Errorf(errUnableToReadConfig, err)
 	}
 
 	return ns, revisionFromTimestamp(updated), nil
 }
 
-func (sr spannerReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDefinition, error) {
-	ctx, span := tracer.Start(ctx, "ListNamespaces")
-	defer span.End()
-
+func (sr spannerReader) ListAllNamespaces(ctx context.Context) ([]datastore.RevisionedNamespace, error) {
 	iter := sr.txSource().Read(
 		ctx,
 		tableNamespace,
 		spanner.AllKeys(),
-		[]string{colNamespaceConfig},
+		[]string{colNamespaceConfig, colNamespaceTS},
 	)
 
 	allNamespaces, err := readAllNamespaces(iter)
@@ -156,20 +165,49 @@ func (sr spannerReader) ListNamespaces(ctx context.Context) ([]*core.NamespaceDe
 	return allNamespaces, nil
 }
 
-func readAllNamespaces(iter *spanner.RowIterator) ([]*core.NamespaceDefinition, error) {
-	var allNamespaces []*core.NamespaceDefinition
+func (sr spannerReader) LookupNamespacesWithNames(ctx context.Context, nsNames []string) ([]datastore.RevisionedNamespace, error) {
+	if len(nsNames) == 0 {
+		return nil, nil
+	}
+
+	keys := make([]spanner.Key, 0, len(nsNames))
+	for _, nsName := range nsNames {
+		keys = append(keys, spanner.Key{nsName})
+	}
+
+	iter := sr.txSource().Read(
+		ctx,
+		tableNamespace,
+		spanner.KeySetFromKeys(keys...),
+		[]string{colNamespaceConfig, colNamespaceTS},
+	)
+
+	foundNamespaces, err := readAllNamespaces(iter)
+	if err != nil {
+		return nil, fmt.Errorf(errUnableToListNamespaces, err)
+	}
+
+	return foundNamespaces, nil
+}
+
+func readAllNamespaces(iter *spanner.RowIterator) ([]datastore.RevisionedNamespace, error) {
+	var allNamespaces []datastore.RevisionedNamespace
 	if err := iter.Do(func(row *spanner.Row) error {
 		var serialized []byte
-		if err := row.Columns(&serialized); err != nil {
+		var updated time.Time
+		if err := row.Columns(&serialized, &updated); err != nil {
 			return err
 		}
 
 		ns := &core.NamespaceDefinition{}
-		if err := proto.Unmarshal(serialized, ns); err != nil {
+		if err := ns.UnmarshalVT(serialized); err != nil {
 			return err
 		}
 
-		allNamespaces = append(allNamespaces, ns)
+		allNamespaces = append(allNamespaces, datastore.RevisionedNamespace{
+			Definition:          ns,
+			LastWrittenRevision: revisionFromTimestamp(updated),
+		})
 
 		return nil
 	}); err != nil {
@@ -186,15 +224,19 @@ var queryTuples = sql.Select(
 	colUsersetNamespace,
 	colUsersetObjectID,
 	colUsersetRelation,
+	colCaveatName,
+	colCaveatContext,
 ).From(tableRelationship)
 
-var schema = common.SchemaInformation{
-	ColNamespace:        colNamespace,
-	ColObjectID:         colObjectID,
-	ColRelation:         colRelation,
-	ColUsersetNamespace: colUsersetNamespace,
-	ColUsersetObjectID:  colUsersetObjectID,
-	ColUsersetRelation:  colUsersetRelation,
-}
+var schema = common.NewSchemaInformation(
+	colNamespace,
+	colObjectID,
+	colRelation,
+	colUsersetNamespace,
+	colUsersetObjectID,
+	colUsersetRelation,
+	colCaveatName,
+	common.ExpandedLogicComparison,
+)
 
 var _ datastore.Reader = spannerReader{}

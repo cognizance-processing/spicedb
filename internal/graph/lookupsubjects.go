@@ -4,27 +4,26 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 
-	"github.com/rs/zerolog/log"
-	"github.com/shopspring/decimal"
 	"golang.org/x/sync/errgroup"
 
+	"github.com/authzed/spicedb/internal/datasets"
 	"github.com/authzed/spicedb/internal/dispatch"
+	log "github.com/authzed/spicedb/internal/logging"
 	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
 	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/util"
 	"github.com/authzed/spicedb/pkg/datastore"
 	core "github.com/authzed/spicedb/pkg/proto/core/v1"
 	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
 	"github.com/authzed/spicedb/pkg/tuple"
+	"github.com/authzed/spicedb/pkg/util"
 )
 
 // ValidatedLookupSubjectsRequest represents a request after it has been validated and parsed for internal
 // consumption.
 type ValidatedLookupSubjectsRequest struct {
 	*v1.DispatchLookupSubjectsRequest
-	Revision decimal.Decimal
+	Revision datastore.Revision
 }
 
 // NewConcurrentLookupSubjects creates an instance of ConcurrentLookupSubjects.
@@ -50,11 +49,10 @@ func (cl *ConcurrentLookupSubjects) LookupSubjects(
 	// If the resource type matches the subject type, yield directly.
 	if req.SubjectRelation.Namespace == req.ResourceRelation.Namespace &&
 		req.SubjectRelation.Relation == req.ResourceRelation.Relation {
-		err := stream.Publish(&v1.DispatchLookupSubjectsResponse{
-			FoundSubjectIds: req.ResourceIds,
-			Metadata:        emptyMetadata,
-		})
-		if err != nil {
+		if err := stream.Publish(&v1.DispatchLookupSubjectsResponse{
+			FoundSubjectsByResourceId: subjectsForConcreteIds(req.ResourceIds),
+			Metadata:                  emptyMetadata,
+		}); err != nil {
 			return err
 		}
 	}
@@ -78,11 +76,26 @@ func (cl *ConcurrentLookupSubjects) LookupSubjects(
 	return cl.lookupViaRewrite(ctx, req, stream, relation.UsersetRewrite)
 }
 
+func subjectsForConcreteIds(subjectIds []string) map[string]*v1.FoundSubjects {
+	foundSubjects := make(map[string]*v1.FoundSubjects, len(subjectIds))
+	for _, subjectID := range subjectIds {
+		foundSubjects[subjectID] = &v1.FoundSubjects{
+			FoundSubjects: []*v1.FoundSubject{
+				{
+					SubjectId:        subjectID,
+					CaveatExpression: nil, // Explicitly nil since this is a concrete found subject.
+				},
+			},
+		}
+	}
+	return foundSubjects
+}
+
 func (cl *ConcurrentLookupSubjects) lookupDirectSubjects(
 	ctx context.Context,
 	req ValidatedLookupSubjectsRequest,
 	stream dispatch.LookupSubjectsStream,
-	relation *core.Relation,
+	_ *core.Relation,
 	reader datastore.Reader,
 ) error {
 	// TODO(jschorr): use type information to skip subject relations that cannot reach the subject type.
@@ -96,8 +109,9 @@ func (cl *ConcurrentLookupSubjects) lookupDirectSubjects(
 	}
 	defer it.Close()
 
-	toDispatchByType := tuple.NewONRByTypeSet()
-	var foundSubjectIds []string
+	toDispatchByType := datasets.NewSubjectByTypeSet()
+	foundSubjectsByResourceID := datasets.NewSubjectSetByResourceID()
+	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
 			return it.Err()
@@ -105,25 +119,32 @@ func (cl *ConcurrentLookupSubjects) lookupDirectSubjects(
 
 		if tpl.Subject.Namespace == req.SubjectRelation.Namespace &&
 			tpl.Subject.Relation == req.SubjectRelation.Relation {
-			foundSubjectIds = append(foundSubjectIds, tpl.Subject.ObjectId)
+			if err := foundSubjectsByResourceID.AddFromRelationship(tpl); err != nil {
+				return fmt.Errorf("failed to call AddFromRelationship in lookupDirectSubjects: %w", err)
+			}
 		}
 
 		if tpl.Subject.Relation != tuple.Ellipsis {
-			toDispatchByType.Add(tpl.Subject)
+			err := toDispatchByType.AddSubjectOf(tpl)
+			if err != nil {
+				return err
+			}
+
+			relationshipsBySubjectONR.Add(tuple.StringONR(tpl.Subject), tpl)
 		}
 	}
+	it.Close()
 
-	if len(foundSubjectIds) > 0 {
-		err := stream.Publish(&v1.DispatchLookupSubjectsResponse{
-			FoundSubjectIds: foundSubjectIds,
-			Metadata:        emptyMetadata,
-		})
-		if err != nil {
+	if !foundSubjectsByResourceID.IsEmpty() {
+		if err := stream.Publish(&v1.DispatchLookupSubjectsResponse{
+			FoundSubjectsByResourceId: foundSubjectsByResourceID.AsMap(),
+			Metadata:                  emptyMetadata,
+		}); err != nil {
 			return err
 		}
 	}
 
-	return cl.dispatchTo(ctx, req, toDispatchByType, stream)
+	return cl.dispatchTo(ctx, req, toDispatchByType, relationshipsBySubjectONR, stream)
 }
 
 func (cl *ConcurrentLookupSubjects) lookupViaComputed(
@@ -133,8 +154,7 @@ func (cl *ConcurrentLookupSubjects) lookupViaComputed(
 	cu *core.ComputedUserset,
 ) error {
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(parentRequest.Revision)
-	err := namespace.CheckNamespaceAndRelation(ctx, parentRequest.ResourceRelation.Namespace, cu.Relation, true, ds)
-	if err != nil {
+	if err := namespace.CheckNamespaceAndRelation(ctx, parentRequest.ResourceRelation.Namespace, cu.Relation, true, ds); err != nil {
 		if errors.As(err, &namespace.ErrRelationNotFound{}) {
 			return nil
 		}
@@ -147,8 +167,8 @@ func (cl *ConcurrentLookupSubjects) lookupViaComputed(
 		Ctx:    ctx,
 		Processor: func(result *v1.DispatchLookupSubjectsResponse) (*v1.DispatchLookupSubjectsResponse, bool, error) {
 			return &v1.DispatchLookupSubjectsResponse{
-				FoundSubjectIds: result.FoundSubjectIds,
-				Metadata:        addCallToResponseMetadata(result.Metadata),
+				FoundSubjectsByResourceId: result.FoundSubjectsByResourceId,
+				Metadata:                  addCallToResponseMetadata(result.Metadata),
 			}, true, nil
 		},
 	}
@@ -184,19 +204,32 @@ func (cl *ConcurrentLookupSubjects) lookupViaTupleToUserset(
 	}
 	defer it.Close()
 
-	toDispatchByTuplesetType := tuple.NewONRByTypeSet()
+	toDispatchByTuplesetType := datasets.NewSubjectByTypeSet()
+	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
 			return it.Err()
 		}
 
-		toDispatchByTuplesetType.Add(tpl.Subject)
+		// Add the subject to be dispatched.
+		err := toDispatchByTuplesetType.AddSubjectOf(tpl)
+		if err != nil {
+			return err
+		}
+
+		// Add the *rewritten* subject to the relationships multimap for mapping back to the associated
+		// relationship, as we will be mapping from the computed relation, not the tupleset relation.
+		relationshipsBySubjectONR.Add(tuple.StringONR(&core.ObjectAndRelation{
+			Namespace: tpl.Subject.Namespace,
+			ObjectId:  tpl.Subject.ObjectId,
+			Relation:  ttu.ComputedUserset.Relation,
+		}), tpl)
 	}
+	it.Close()
 
 	// Map the found subject types by the computed userset relation, so that we dispatch to it.
 	toDispatchByComputedRelationType, err := toDispatchByTuplesetType.Map(func(resourceType *core.RelationReference) (*core.RelationReference, error) {
-		err := namespace.CheckNamespaceAndRelation(ctx, resourceType.Namespace, ttu.ComputedUserset.Relation, false, ds)
-		if err != nil {
+		if err := namespace.CheckNamespaceAndRelation(ctx, resourceType.Namespace, ttu.ComputedUserset.Relation, false, ds); err != nil {
 			if errors.As(err, &namespace.ErrRelationNotFound{}) {
 				return nil, nil
 			}
@@ -213,7 +246,7 @@ func (cl *ConcurrentLookupSubjects) lookupViaTupleToUserset(
 		return err
 	}
 
-	return cl.dispatchTo(ctx, parentRequest, toDispatchByComputedRelationType, parentStream)
+	return cl.dispatchTo(ctx, parentRequest, toDispatchByComputedRelationType, relationshipsBySubjectONR, parentStream)
 }
 
 func (cl *ConcurrentLookupSubjects) lookupViaRewrite(
@@ -291,7 +324,8 @@ func (cl *ConcurrentLookupSubjects) lookupSetOperation(
 func (cl *ConcurrentLookupSubjects) dispatchTo(
 	ctx context.Context,
 	parentRequest ValidatedLookupSubjectsRequest,
-	toDispatchByType *tuple.ONRByTypeSet,
+	toDispatchByType *datasets.SubjectByTypeSet,
+	relationshipsBySubjectONR *util.MultiMap[string, *core.RelationTuple],
 	parentStream dispatch.LookupSubjectsStream,
 ) error {
 	if toDispatchByType.IsEmpty() {
@@ -304,18 +338,84 @@ func (cl *ConcurrentLookupSubjects) dispatchTo(
 	g, subCtx := errgroup.WithContext(cancelCtx)
 	g.SetLimit(int(cl.concurrencyLimit))
 
-	stream := &dispatch.WrappedDispatchStream[*v1.DispatchLookupSubjectsResponse]{
-		Stream: parentStream,
-		Ctx:    subCtx,
-		Processor: func(result *v1.DispatchLookupSubjectsResponse) (*v1.DispatchLookupSubjectsResponse, bool, error) {
-			return &v1.DispatchLookupSubjectsResponse{
-				FoundSubjectIds: result.FoundSubjectIds,
-				Metadata:        addCallToResponseMetadata(result.Metadata),
-			}, true, nil
-		},
-	}
+	toDispatchByType.ForEachType(func(resourceType *core.RelationReference, foundSubjects datasets.SubjectSet) {
+		slice := foundSubjects.AsSlice()
+		resourceIds := make([]string, 0, len(slice))
+		for _, foundSubject := range slice {
+			resourceIds = append(resourceIds, foundSubject.SubjectId)
+		}
 
-	toDispatchByType.ForEachType(func(resourceType *core.RelationReference, resourceIds []string) {
+		stream := &dispatch.WrappedDispatchStream[*v1.DispatchLookupSubjectsResponse]{
+			Stream: parentStream,
+			Ctx:    subCtx,
+			Processor: func(result *v1.DispatchLookupSubjectsResponse) (*v1.DispatchLookupSubjectsResponse, bool, error) {
+				// For any found subjects, map them through their associated starting resources, to apply any caveats that were
+				// only those resources' relationships.
+				//
+				// For example, given relationships which formed the dispatch:
+				//   - document:firstdoc#viewer@group:group1#member
+				//   - document:firstdoc#viewer@group:group2#member[somecaveat]
+				//
+				//	And results:
+				//	 - group1 => {user:tom, user:sarah}
+				//   - group2 => {user:tom, user:fred}
+				//
+				//	This will produce:
+				//	 - firstdoc => {user:tom, user:sarah, user:fred[somecaveat]}
+				//
+				mappedFoundSubjects := make(map[string]*v1.FoundSubjects)
+				for childResourceID, foundSubjects := range result.FoundSubjectsByResourceId {
+					subjectKey := tuple.StringONR(&core.ObjectAndRelation{
+						Namespace: resourceType.Namespace,
+						ObjectId:  childResourceID,
+						Relation:  resourceType.Relation,
+					})
+
+					relationships, _ := relationshipsBySubjectONR.Get(subjectKey)
+					if len(relationships) == 0 {
+						return nil, false, fmt.Errorf("missing relationships for subject key %v; please report this error", subjectKey)
+					}
+
+					for _, relationship := range relationships {
+						existing := mappedFoundSubjects[relationship.ResourceAndRelation.ObjectId]
+
+						// If the relationship has no caveat, simply map the resource ID.
+						if relationship.GetCaveat() == nil {
+							combined, err := combineFoundSubjects(existing, foundSubjects)
+							if err != nil {
+								return nil, false, fmt.Errorf("could not combine caveat-less subjects: %w", err)
+							}
+							mappedFoundSubjects[relationship.ResourceAndRelation.ObjectId] = combined
+							continue
+						}
+
+						// Otherwise, apply the caveat to all found subjects for that resource and map to the resource ID.
+						foundSubjectSet := datasets.NewSubjectSet()
+						err := foundSubjectSet.UnionWith(foundSubjects.FoundSubjects)
+						if err != nil {
+							return nil, false, fmt.Errorf("could not combine subject sets: %w", err)
+						}
+
+						combined, err := combineFoundSubjects(
+							existing,
+							foundSubjectSet.WithParentCaveatExpression(wrapCaveat(relationship.Caveat)).AsFoundSubjects(),
+						)
+						if err != nil {
+							return nil, false, fmt.Errorf("could not combine caveated subjects: %w", err)
+						}
+
+						mappedFoundSubjects[relationship.ResourceAndRelation.ObjectId] = combined
+					}
+				}
+
+				return &v1.DispatchLookupSubjectsResponse{
+					FoundSubjectsByResourceId: mappedFoundSubjects,
+					Metadata:                  addCallToResponseMetadata(result.Metadata),
+				}, true, nil
+			},
+		}
+
+		// Dispatch the found subjects as the resources of the next step.
 		util.ForEachChunk(resourceIds, maxDispatchChunkSize, func(resourceIdChunk []string) {
 			g.Go(func() error {
 				return cl.d.DispatchLookupSubjects(&v1.DispatchLookupSubjectsRequest{
@@ -334,6 +434,20 @@ func (cl *ConcurrentLookupSubjects) dispatchTo(
 	return g.Wait()
 }
 
+func combineFoundSubjects(existing *v1.FoundSubjects, toAdd *v1.FoundSubjects) (*v1.FoundSubjects, error) {
+	if existing == nil {
+		return toAdd, nil
+	}
+
+	if toAdd == nil {
+		return nil, fmt.Errorf("toAdd FoundSubject cannot be nil")
+	}
+
+	return &v1.FoundSubjects{
+		FoundSubjects: append(existing.FoundSubjects, toAdd.FoundSubjects...),
+	}, nil
+}
+
 type lookupSubjectsReducer interface {
 	ForIndex(ctx context.Context, setOperationIndex int) dispatch.LookupSubjectsStream
 	CompletedChildOperations() error
@@ -342,47 +456,48 @@ type lookupSubjectsReducer interface {
 // Union
 type lookupSubjectsUnion struct {
 	parentStream dispatch.LookupSubjectsStream
-	encountered  *util.Set[string]
-	mu           sync.Mutex
+	collectors   map[int]*dispatch.CollectingDispatchStream[*v1.DispatchLookupSubjectsResponse]
 }
 
 func newLookupSubjectsUnion(parentStream dispatch.LookupSubjectsStream) *lookupSubjectsUnion {
 	return &lookupSubjectsUnion{
 		parentStream: parentStream,
-		encountered:  util.NewSet[string](),
-		mu:           sync.Mutex{},
+		collectors:   map[int]*dispatch.CollectingDispatchStream[*v1.DispatchLookupSubjectsResponse]{},
 	}
 }
 
 func (lsu *lookupSubjectsUnion) ForIndex(ctx context.Context, setOperationIndex int) dispatch.LookupSubjectsStream {
-	return &dispatch.WrappedDispatchStream[*v1.DispatchLookupSubjectsResponse]{
-		Stream: lsu.parentStream,
-		Ctx:    ctx,
-		Processor: func(result *v1.DispatchLookupSubjectsResponse) (*v1.DispatchLookupSubjectsResponse, bool, error) {
-			lsu.mu.Lock()
-			defer lsu.mu.Unlock()
-
-			filtered := make([]string, 0, len(result.FoundSubjectIds))
-			for _, subjectID := range result.FoundSubjectIds {
-				if lsu.encountered.Add(subjectID) {
-					filtered = append(filtered, subjectID)
-				}
-			}
-
-			if len(filtered) == 0 {
-				return nil, false, nil
-			}
-
-			return &v1.DispatchLookupSubjectsResponse{
-				FoundSubjectIds: filtered,
-				Metadata:        result.Metadata,
-			}, true, nil
-		},
-	}
+	collector := dispatch.NewCollectingDispatchStream[*v1.DispatchLookupSubjectsResponse](ctx)
+	lsu.collectors[setOperationIndex] = collector
+	return collector
 }
 
 func (lsu *lookupSubjectsUnion) CompletedChildOperations() error {
-	return nil
+	foundSubjects := datasets.NewSubjectSetByResourceID()
+	metadata := emptyMetadata
+
+	for index := 0; index < len(lsu.collectors); index++ {
+		collector, ok := lsu.collectors[index]
+		if !ok {
+			return fmt.Errorf("missing collector for index %d", index)
+		}
+
+		for _, result := range collector.Results() {
+			metadata = combineResponseMetadata(metadata, result.Metadata)
+			if err := foundSubjects.UnionWith(result.FoundSubjectsByResourceId); err != nil {
+				return fmt.Errorf("failed to UnionWith under lookupSubjectsUnion: %w", err)
+			}
+		}
+	}
+
+	if foundSubjects.IsEmpty() {
+		return nil
+	}
+
+	return lsu.parentStream.Publish(&v1.DispatchLookupSubjectsResponse{
+		FoundSubjectsByResourceId: foundSubjects.AsMap(),
+		Metadata:                  metadata,
+	})
 }
 
 // Intersection
@@ -405,7 +520,7 @@ func (lsi *lookupSubjectsIntersection) ForIndex(ctx context.Context, setOperatio
 }
 
 func (lsi *lookupSubjectsIntersection) CompletedChildOperations() error {
-	var foundSubjectIds *util.Set[string]
+	var foundSubjects datasets.SubjectSetByResourceID
 	metadata := emptyMetadata
 
 	for index := 0; index < len(lsi.collectors); index++ {
@@ -414,25 +529,31 @@ func (lsi *lookupSubjectsIntersection) CompletedChildOperations() error {
 			return fmt.Errorf("missing collector for index %d", index)
 		}
 
-		results := util.NewSet[string]()
+		results := datasets.NewSubjectSetByResourceID()
 		for _, result := range collector.Results() {
 			metadata = combineResponseMetadata(metadata, result.Metadata)
-			results.Extend(result.FoundSubjectIds)
+			if err := results.UnionWith(result.FoundSubjectsByResourceId); err != nil {
+				return fmt.Errorf("failed to UnionWith under lookupSubjectsIntersection: %w", err)
+			}
 		}
 
 		if index == 0 {
-			foundSubjectIds = results
+			foundSubjects = results
 		} else {
-			foundSubjectIds.IntersectionDifference(results)
-			if foundSubjectIds.IsEmpty() {
+			err := foundSubjects.IntersectionDifference(results)
+			if err != nil {
+				return err
+			}
+
+			if foundSubjects.IsEmpty() {
 				return nil
 			}
 		}
 	}
 
 	return lsi.parentStream.Publish(&v1.DispatchLookupSubjectsResponse{
-		FoundSubjectIds: foundSubjectIds.AsSlice(),
-		Metadata:        metadata,
+		FoundSubjectsByResourceId: foundSubjects.AsMap(),
+		Metadata:                  metadata,
 	})
 }
 
@@ -456,29 +577,31 @@ func (lse *lookupSubjectsExclusion) ForIndex(ctx context.Context, setOperationIn
 }
 
 func (lse *lookupSubjectsExclusion) CompletedChildOperations() error {
-	var foundSubjectIds *util.Set[string]
+	var foundSubjects datasets.SubjectSetByResourceID
 	metadata := emptyMetadata
 
 	for index := 0; index < len(lse.collectors); index++ {
 		collector := lse.collectors[index]
-		results := util.NewSet[string]()
+		results := datasets.NewSubjectSetByResourceID()
 		for _, result := range collector.Results() {
 			metadata = combineResponseMetadata(metadata, result.Metadata)
-			results.Extend(result.FoundSubjectIds)
+			if err := results.UnionWith(result.FoundSubjectsByResourceId); err != nil {
+				return fmt.Errorf("failed to UnionWith under lookupSubjectsExclusion: %w", err)
+			}
 		}
 
 		if index == 0 {
-			foundSubjectIds = results
+			foundSubjects = results
 		} else {
-			foundSubjectIds.RemoveAll(results)
-			if foundSubjectIds.IsEmpty() {
+			foundSubjects.SubtractAll(results)
+			if foundSubjects.IsEmpty() {
 				return nil
 			}
 		}
 	}
 
 	return lse.parentStream.Publish(&v1.DispatchLookupSubjectsResponse{
-		FoundSubjectIds: foundSubjectIds.AsSlice(),
-		Metadata:        metadata,
+		FoundSubjectsByResourceId: foundSubjects.AsMap(),
+		Metadata:                  metadata,
 	})
 }

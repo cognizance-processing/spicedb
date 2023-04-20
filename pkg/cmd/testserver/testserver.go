@@ -5,12 +5,12 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc"
 
 	"github.com/authzed/spicedb/internal/dispatch/graph"
 	"github.com/authzed/spicedb/internal/gateway"
+	log "github.com/authzed/spicedb/internal/logging"
 	consistencymw "github.com/authzed/spicedb/internal/middleware/consistency"
 	dispatchmw "github.com/authzed/spicedb/internal/middleware/dispatcher"
 	"github.com/authzed/spicedb/internal/middleware/pertoken"
@@ -18,19 +18,23 @@ import (
 	"github.com/authzed/spicedb/internal/middleware/servicespecific"
 	"github.com/authzed/spicedb/internal/services"
 	"github.com/authzed/spicedb/internal/services/health"
-	v1alpha1svc "github.com/authzed/spicedb/internal/services/v1alpha1"
+	v1svc "github.com/authzed/spicedb/internal/services/v1"
 	"github.com/authzed/spicedb/pkg/cmd/util"
+	"github.com/authzed/spicedb/pkg/datastore"
 )
 
 const maxDepth = 50
 
 //go:generate go run github.com/ecordell/optgen -output zz_generated.options.go . Config
 type Config struct {
-	GRPCServer          util.GRPCServerConfig
-	ReadOnlyGRPCServer  util.GRPCServerConfig
-	HTTPGateway         util.HTTPServerConfig
-	ReadOnlyHTTPGateway util.HTTPServerConfig
-	LoadConfigs         []string
+	GRPCServer               util.GRPCServerConfig
+	ReadOnlyGRPCServer       util.GRPCServerConfig
+	HTTPGateway              util.HTTPServerConfig
+	ReadOnlyHTTPGateway      util.HTTPServerConfig
+	LoadConfigs              []string
+	MaximumUpdatesPerWrite   uint16
+	MaximumPreconditionCount uint16
+	MaxCaveatContextSize     int
 }
 
 type RunnableTestServer interface {
@@ -41,8 +45,8 @@ type RunnableTestServer interface {
 
 type datastoreReady struct{}
 
-func (dr datastoreReady) IsReady(ctx context.Context) (bool, error) {
-	return true, nil
+func (dr datastoreReady) ReadyState(_ context.Context) (datastore.ReadyState, error) {
+	return datastore.ReadyState{IsReady: true}, nil
 }
 
 func (c *Config) Complete() (RunnableTestServer, error) {
@@ -57,10 +61,14 @@ func (c *Config) Complete() (RunnableTestServer, error) {
 			srv,
 			healthManager,
 			dispatcher,
-			maxDepth,
-			v1alpha1svc.PrefixNotRequired,
 			services.V1SchemaServiceEnabled,
 			services.WatchServiceEnabled,
+			v1svc.PermissionsServerConfig{
+				MaxPreconditionsCount: c.MaximumPreconditionCount,
+				MaxUpdatesPerWrite:    c.MaximumUpdatesPerWrite,
+				MaximumAPIDepth:       maxDepth,
+				MaxCaveatContextSize:  c.MaxCaveatContextSize,
+			},
 		)
 	}
 	gRPCSrv, err := c.GRPCServer.Complete(zerolog.InfoLevel, registerServices,
@@ -174,7 +182,7 @@ func (c *completedTestServer) Run(ctx context.Context) error {
 	g.Go(stopOnCancel(c.readOnlyGatewayServer.Close))
 
 	if err := g.Wait(); err != nil {
-		log.Warn().Err(err).Msg("error shutting down servers")
+		log.Ctx(ctx).Warn().Err(err).Msg("error shutting down servers")
 	}
 
 	return nil
