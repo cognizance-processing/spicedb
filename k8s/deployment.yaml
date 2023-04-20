@@ -3,8 +3,6 @@ kind: "Deployment"
 metadata:
   name: "spicedb"
   labels:
-    app.kubernetes.io/name: "spicedb"
-    app.kubernetes.io/version: "example"
     app: "spicedb"
 spec:
   replicas: 1
@@ -134,18 +132,22 @@ spec:
               requests:
                 memory: "4Gi"
                 cpu:    "2"
+              limits:
+                memory: "16Gi"
+                cpu: "8"
         - name: cloud-sql-proxy
-          image: gcr.io/cloudsql-docker/gce-proxy:1.33.5
-          command:
-            - "/cloud_sql_proxy"
-            - "-log_debug_stdout"
-            - "-instances=cog-analytics-backend:us-central1:authz-store=tcp:5432"
-            - "-enable_iam_login"
-            - "-term_timeout=10s"
+          image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2.1.0
+          args:
+            - "--structured-logs"
+            - "--port=5432"
+            - "cog-analytics-backend:us-central1:authz-store"
           securityContext:
             runAsNonRoot: true
           resources:
             requests:
               memory: "4Gi"
               cpu:    "2"
+            limits:
+              memory: "16Gi"
+              cpu: "8"
 

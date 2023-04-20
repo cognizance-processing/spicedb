@@ -7,4 +7,4 @@ manifests:
     - k8s/*.yaml
 deploy:
   kubectl: {}
-  statusCheckDeadlineSeconds: 300
+  statusCheckDeadlineSeconds: 600
