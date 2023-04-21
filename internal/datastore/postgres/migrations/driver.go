@@ -24,7 +24,7 @@ type AlembicPostgresDriver struct {
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
 	var (
 		dbUser                 = "new"                                                           // e.g. 'my-db-user'
-		dbPwd                  = "happy456"                                                      // e.g. 'my-db-password'
+		dbPwd                  = "Happy456"                                                      // e.g. 'my-db-password'
 		dbName                 = "postgres"                                                      // e.g. 'my-database'
 		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
 		//usePrivate             = os.Getenv("PRIVATE_IP")
