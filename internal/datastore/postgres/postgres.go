@@ -171,7 +171,7 @@ func newPostgresDatastore(
 		//usePrivate             = os.Getenv("PRIVATE_IP")
 	)
 
-	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s slmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
+	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s sslmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
 	config, err := generateConfig(options)
 	url = dsn
 	if err != nil {
