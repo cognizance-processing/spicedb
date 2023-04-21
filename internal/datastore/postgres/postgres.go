@@ -173,6 +173,7 @@ func newPostgresDatastore(
 
 	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s sslmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
 	config, err := generateConfig(options)
+	config.gcEnabled = false
 	url = dsn
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
