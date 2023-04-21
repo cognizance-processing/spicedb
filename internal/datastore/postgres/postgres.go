@@ -165,7 +165,7 @@ func newPostgresDatastore(
 ) (datastore.Datastore, error) {
 	var (
 		dbUser                 = "new"                                                           // e.g. 'my-db-user'
-		dbPwd                  = "happy456"                                                      // e.g. 'my-db-password'
+		dbPwd                  = "Happy456"                                                      // e.g. 'my-db-password'
 		dbName                 = "spicedb"                                                       // e.g. 'my-database'
 		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
 		//usePrivate             = os.Getenv("PRIVATE_IP")
@@ -173,7 +173,7 @@ func newPostgresDatastore(
 
 	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s sslmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
 	config, err := generateConfig(options)
-	config.gcEnabled = false
+	//config.gcEnabled = false
 	url = dsn
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
@@ -185,8 +185,7 @@ func newPostgresDatastore(
 			Msg("postgres configured to use intermediate migration phase")
 	}
 
-	// config must be initialized by ParseConfig
-	/*readPoolConfig, err := pgxpool.ParseConfig(url)
+	readPoolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -194,9 +193,9 @@ func newPostgresDatastore(
 	readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		RegisterTypes(conn.TypeMap())
 		return nil
-	}*/
+	}
 
-	/*writePoolConfig, err := pgxpool.ParseConfig(url)
+	writePoolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -204,21 +203,20 @@ func newPostgresDatastore(
 	writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		RegisterTypes(conn.TypeMap())
 		return nil
-	}*/
+	}
 
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
 
-	readPool, err := connectWithConnector()
+	readPool, err := pgxpool.NewWithConfig(initializationContext, readPoolConfig)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
 
-	writePool, err := connectWithConnector()
+	writePool, err := pgxpool.NewWithConfig(initializationContext, writePoolConfig)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
-
 	//dbURI := stdlib.RegisterConnConfig(readPoolConfig.ConnConfig)
 	// Verify that the server supports commit timestamps
 	var trackTSOn string
