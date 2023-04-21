@@ -178,7 +178,9 @@ func loadAllNamespaces(
 	filterer queryFilterer,
 ) ([]datastore.RevisionedNamespace, error) {
 	sql, args, err := filterer(readNamespace).ToSql()
+	fmt.Println("sql str", sql, args)
 	if err != nil {
+		log.Err(err).Msg("error on filterer")
 		return nil, err
 	}
 
@@ -187,14 +189,16 @@ func loadAllNamespaces(
 		log.Err(err).Msg("error querying in loading name space")
 		return nil, err
 	}
-	fmt.Println("row vals, maybe", rows.Conn(), rows.Next(), rows.FieldDescriptions(), rows.RawValues())
 	defer rows.Close()
 
 	var nsDefs []datastore.RevisionedNamespace
 	for rows.Next() {
 		var config []byte
 		var version xid8
-
+		columnValues, _ := rows.Values()
+		for i, v := range columnValues {
+			fmt.Printf("Type of value at %v=%T, value=%v | ", i, v, v)
+		}
 		if err := rows.Scan(&config, &version); err != nil {
 			log.Err(err).Msg("error scanning row")
 			return nil, err
