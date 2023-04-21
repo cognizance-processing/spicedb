@@ -32,4 +32,4 @@ COPY --from=builder /app/ /app/
 # or RUN apt install tini
 # COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.12 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
 # COPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb
-ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569", "--http-enabled", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.69.246.231:5432/spicedb?sslmode=disable\""]
+ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--dashboard-enabled=false", "--debug", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.69.246.231:5432/spicedb?sslmode=disable\""]
