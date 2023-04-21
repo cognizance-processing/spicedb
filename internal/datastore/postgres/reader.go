@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	log "spicedb/internal/logging"
 
 	sq "github.com/Masterminds/squirrel"
 
@@ -132,6 +133,7 @@ func (r *pgReader) loadNamespace(ctx context.Context, namespace string, tx pgxco
 func (r *pgReader) ListAllNamespaces(ctx context.Context) ([]datastore.RevisionedNamespace, error) {
 	tx, txCleanup, err := r.txSource(ctx)
 	if err != nil {
+		log.Err(err).Msg("error on txCleanUp")
 		return nil, err
 	}
 	defer txCleanup(ctx)
@@ -182,8 +184,10 @@ func loadAllNamespaces(
 
 	rows, err := tx.Query(ctx, sql, args...)
 	if err != nil {
+		log.Err(err).Msg("error querying in loading name space")
 		return nil, err
 	}
+	fmt.Println("row vals, maybe", rows.Conn(), rows.Next(), rows.FieldDescriptions(), rows.RawValues())
 	defer rows.Close()
 
 	var nsDefs []datastore.RevisionedNamespace
@@ -192,6 +196,7 @@ func loadAllNamespaces(
 		var version xid8
 
 		if err := rows.Scan(&config, &version); err != nil {
+			log.Err(err).Msg("error scanning row")
 			return nil, err
 		}
 
