@@ -184,7 +184,11 @@ func newPostgresDatastore(
 			Str("phase", config.migrationPhase).
 			Msg("postgres configured to use intermediate migration phase")
 	}
-
+	var opts []cloudsqlconn.Option
+	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
+	if err != nil {
+		return nil, err
+	}
 	readPoolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
@@ -204,7 +208,12 @@ func newPostgresDatastore(
 		RegisterTypes(conn.TypeMap())
 		return nil
 	}
-
+	readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
+		return d.Dial(ctx, instanceConnectionName)
+	}
+	writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
+		return d.Dial(ctx, instanceConnectionName)
+	}
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
 
