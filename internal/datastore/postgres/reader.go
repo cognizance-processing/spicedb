@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	log "spicedb/internal/logging"
+	"strconv"
 
 	sq "github.com/Masterminds/squirrel"
 
@@ -190,11 +191,14 @@ func loadAllNamespaces(
 		return nil, err
 	}
 	defer rows.Close()
-
+	type xidTest struct {
+		Uint64 string
+		Valid  bool
+	}
 	var nsDefs []datastore.RevisionedNamespace
 	for rows.Next() {
 		var config []byte
-		var version xid8
+		var version xidTest
 		columnValues, _ := rows.Values()
 		for i, v := range columnValues {
 			fmt.Printf("Type of value at %v=%T, value=%v | ", i, v, v)
@@ -209,7 +213,14 @@ func loadAllNamespaces(
 			return nil, fmt.Errorf(errUnableToReadConfig, err)
 		}
 
-		revision := revisionForVersion(version)
+		val, err := strconv.ParseUint(version.Uint64, 10, 64)
+		if err != nil {
+			log.Err(err).Msg("Weird logging did not werk")
+		}
+		revision := revisionForVersion(xid8{
+			Uint64: val,
+			Valid:  false,
+		})
 
 		nsDefs = append(nsDefs, datastore.RevisionedNamespace{Definition: loaded, LastWrittenRevision: revision})
 	}
