@@ -10,9 +10,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 const (

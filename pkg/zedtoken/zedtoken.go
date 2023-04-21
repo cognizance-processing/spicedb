@@ -9,9 +9,9 @@ import (
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/shopspring/decimal"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	zedtoken "github.com/authzed/spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	zedtoken "spicedb/pkg/proto/impl/v1"
 )
 
 // Public facing errors

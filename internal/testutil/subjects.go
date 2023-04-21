@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // WrapFoundSubject wraps the given subject into a pointer to it, unless nil, in which case this method returns

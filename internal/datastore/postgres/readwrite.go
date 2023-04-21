@@ -11,9 +11,9 @@ import (
 	"github.com/jzelinskie/stringz"
 	"google.golang.org/protobuf/proto"
 
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 const (

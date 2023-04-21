@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/pkg/tuple"
 )
 
 func TestPopulateFromFiles(t *testing.T) {

@@ -3,9 +3,9 @@ package development
 import (
 	"errors"
 
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/input"
 )
 
 // CompileSchema compiles a schema into its caveat and namespace definition(s), returning a developer

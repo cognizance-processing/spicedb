@@ -8,16 +8,16 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/internal/middleware"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/middleware/usagemetrics"
-	"github.com/authzed/spicedb/internal/services/shared"
-	"github.com/authzed/spicedb/pkg/datastore"
-	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	log "spicedb/internal/logging"
+	"spicedb/internal/middleware"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/middleware/usagemetrics"
+	"spicedb/internal/services/shared"
+	"spicedb/pkg/datastore"
+	dispatchv1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/generator"
+	"spicedb/pkg/schemadsl/input"
 )
 
 // NewSchemaServer creates a SchemaServiceServer instance.

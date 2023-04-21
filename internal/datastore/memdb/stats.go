@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 func (mdb *memdbDatastore) Statistics(ctx context.Context) (datastore.Stats, error) {

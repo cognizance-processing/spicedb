@@ -5,9 +5,9 @@ import (
 
 	"golang.org/x/exp/maps"
 
-	"github.com/authzed/spicedb/pkg/caveats/types"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/caveats/types"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/util"
 )
 
 // DeltaType defines the type of caveat deltas.

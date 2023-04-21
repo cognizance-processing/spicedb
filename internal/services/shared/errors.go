@@ -11,7 +11,7 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 // ErrServiceReadOnly is an extended GRPC error returned when a service is in read-only mode.

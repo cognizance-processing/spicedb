@@ -5,13 +5,13 @@ import (
 	"errors"
 	"sync"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/dispatch"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 )
 
 // NewConcurrentLookup creates and instance of ConcurrentLookup.

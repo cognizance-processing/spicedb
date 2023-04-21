@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 
 	"github.com/jzelinskie/cobrautil/v2"
 	"github.com/spf13/cobra"

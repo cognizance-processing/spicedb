@@ -6,16 +6,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/caveats"
-	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
-	"github.com/authzed/spicedb/pkg/datastore"
-	ns "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/caveats"
+	caveattypes "spicedb/pkg/caveats/types"
+	"spicedb/pkg/datastore"
+	ns "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/tuple"
 )
 
 var UserNS = ns.Namespace("user")

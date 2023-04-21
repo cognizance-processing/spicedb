@@ -8,13 +8,13 @@ import (
 
 	"golang.org/x/exp/maps"
 
-	"github.com/authzed/spicedb/pkg/caveats"
-	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
-	"github.com/authzed/spicedb/pkg/graph"
-	"github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/caveats"
+	caveattypes "spicedb/pkg/caveats/types"
+	"spicedb/pkg/graph"
+	"spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/spiceerrors"
 )
 
 // Ellipsis is the relation name for terminal subjects.

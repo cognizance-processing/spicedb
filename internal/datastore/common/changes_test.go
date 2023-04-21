@@ -9,10 +9,10 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 const (

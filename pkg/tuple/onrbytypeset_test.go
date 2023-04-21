@@ -4,7 +4,7 @@ import (
 	"sort"
 	"testing"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
 	"github.com/stretchr/testify/require"
 )

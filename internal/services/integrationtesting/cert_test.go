@@ -23,16 +23,16 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/dispatch/graph"
-	"github.com/authzed/spicedb/internal/middleware/consistency"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/middleware/servicespecific"
-	tf "github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/util"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/dispatch/graph"
+	"spicedb/internal/middleware/consistency"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/middleware/servicespecific"
+	tf "spicedb/internal/testfixtures"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/util"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/zedtoken"
 )
 
 func TestCertRotation(t *testing.T) {

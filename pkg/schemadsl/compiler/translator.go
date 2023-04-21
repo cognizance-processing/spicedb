@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/authzed/spicedb/pkg/caveats"
+	"spicedb/pkg/caveats"
 
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/util"
 
 	"github.com/jzelinskie/stringz"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
-	"github.com/authzed/spicedb/pkg/namespace"
-	"github.com/authzed/spicedb/pkg/schemadsl/dslshape"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	caveattypes "spicedb/pkg/caveats/types"
+	"spicedb/pkg/namespace"
+	"spicedb/pkg/schemadsl/dslshape"
+	"spicedb/pkg/schemadsl/input"
 )
 
 type translationContext struct {

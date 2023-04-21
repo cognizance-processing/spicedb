@@ -10,11 +10,11 @@ import (
 	grpcauth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	"google.golang.org/grpc"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	log "github.com/authzed/spicedb/internal/logging"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/validationfile"
+	"spicedb/internal/datastore/memdb"
+	log "spicedb/internal/logging"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/validationfile"
 )
 
 const (

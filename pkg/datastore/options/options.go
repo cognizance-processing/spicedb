@@ -1,7 +1,7 @@
 package options
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 //go:generate go run github.com/ecordell/optgen -output zz_generated.query_options.go . QueryOptions ReverseQueryOptions

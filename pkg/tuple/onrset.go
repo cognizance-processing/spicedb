@@ -1,7 +1,7 @@
 package tuple
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // ONRSet is a set of ObjectAndRelation's.

@@ -5,15 +5,15 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/util"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	dsctx "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/relationships"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	log "spicedb/internal/logging"
+	dsctx "spicedb/internal/middleware/datastore"
+	"spicedb/internal/namespace"
+	"spicedb/internal/relationships"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 // PopulatedValidationFile contains the fully parsed information from a validation file.

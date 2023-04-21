@@ -9,11 +9,11 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 const (

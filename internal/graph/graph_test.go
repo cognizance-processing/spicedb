@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 func TestChunkSizes(t *testing.T) {

@@ -8,10 +8,10 @@ import (
 	sq "github.com/Masterminds/squirrel"
 	"github.com/shopspring/decimal"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"spicedb/internal/datastore/common"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
 )
 
 var _ common.GarbageCollector = (*Datastore)(nil)

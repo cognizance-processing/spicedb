@@ -3,7 +3,7 @@ package proxy
 import (
 	"context"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 var errReadOnly = datastore.NewReadonlyErr()

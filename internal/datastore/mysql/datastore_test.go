@@ -14,16 +14,16 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/mysql/migrations"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/test"
-	"github.com/authzed/spicedb/pkg/migrate"
-	"github.com/authzed/spicedb/pkg/namespace"
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/mysql/migrations"
+	"spicedb/internal/testfixtures"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/test"
+	"spicedb/pkg/migrate"
+	"spicedb/pkg/namespace"
+	corev1 "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 const (

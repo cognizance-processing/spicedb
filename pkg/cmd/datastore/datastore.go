@@ -9,15 +9,15 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/authzed/spicedb/internal/datastore/crdb"
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/datastore/mysql"
-	"github.com/authzed/spicedb/internal/datastore/postgres"
-	"github.com/authzed/spicedb/internal/datastore/proxy"
-	"github.com/authzed/spicedb/internal/datastore/spanner"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/validationfile"
+	"spicedb/internal/datastore/crdb"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/datastore/mysql"
+	"spicedb/internal/datastore/postgres"
+	"spicedb/internal/datastore/proxy"
+	"spicedb/internal/datastore/spanner"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/validationfile"
 )
 
 type engineBuilderFunc func(options Config) (datastore.Datastore, error)

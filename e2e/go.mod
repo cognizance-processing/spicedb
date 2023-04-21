@@ -1,11 +1,11 @@
-module github.com/authzed/spicedb/e2e
+module spicedb/e2e
 
 go 1.19
 
 require (
 	github.com/authzed/authzed-go v0.7.1-0.20230407200536-38340f010afc
 	github.com/authzed/grpcutil v0.0.0-20220104222419-f813f77722e5
-	github.com/authzed/spicedb v1.5.0
+	spicedb v1.5.0
 	github.com/brianvoe/gofakeit/v6 v6.15.0
 	github.com/ecordell/optgen v0.0.6
 	github.com/jackc/pgx/v5 v5.3.1
@@ -48,4 +48,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/authzed/spicedb => ../
+replace spicedb => ../

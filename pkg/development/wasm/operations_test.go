@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	"github.com/authzed/spicedb/pkg/testutil"
-	"github.com/authzed/spicedb/pkg/tuple"
+	core "spicedb/pkg/proto/core/v1"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	"spicedb/pkg/testutil"
+	"spicedb/pkg/tuple"
 )
 
 type editCheckResult struct {

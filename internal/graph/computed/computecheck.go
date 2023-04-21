@@ -3,12 +3,12 @@ package computed
 import (
 	"context"
 
-	cexpr "github.com/authzed/spicedb/internal/caveats"
-	"github.com/authzed/spicedb/internal/dispatch"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	cexpr "spicedb/internal/caveats"
+	"spicedb/internal/dispatch"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // DebugOption defines the various debug level options for Checks.

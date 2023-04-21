@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	implv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/datastore"
+	implv1 "spicedb/pkg/proto/impl/v1"
 )
 
 const (

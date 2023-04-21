@@ -3,9 +3,9 @@ package common
 import (
 	"runtime"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // NewSliceRelationshipIterator creates a datastore.TupleIterator instance from a materialized slice of tuples.

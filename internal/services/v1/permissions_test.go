@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 
 	"github.com/authzed/authzed-go/pkg/requestmeta"
 	"github.com/authzed/authzed-go/pkg/responsemeta"
@@ -25,16 +25,16 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	v1svc "github.com/authzed/spicedb/internal/services/v1"
-	tf "github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/internal/testserver"
-	pgraph "github.com/authzed/spicedb/pkg/graph"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/memdb"
+	v1svc "spicedb/internal/services/v1"
+	tf "spicedb/internal/testfixtures"
+	"spicedb/internal/testserver"
+	pgraph "spicedb/pkg/graph"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/zedtoken"
 )
 
 var testTimedeltas = []time.Duration{0, 1 * time.Second}

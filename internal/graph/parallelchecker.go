@@ -7,10 +7,10 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/semaphore"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/graph/computed"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/graph/computed"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/util"
 )
 
 // parallelChecker is a helper for initiating checks over a large set of resources of a specific

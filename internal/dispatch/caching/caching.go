@@ -13,11 +13,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/dispatch/keys"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cache"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/dispatch/keys"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/cache"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 const (

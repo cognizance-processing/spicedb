@@ -1,10 +1,10 @@
 package main
 
 import (
-	"github.com/authzed/spicedb/tools/analyzers/closeafterusagecheck"
-	"github.com/authzed/spicedb/tools/analyzers/exprstatementcheck"
-	"github.com/authzed/spicedb/tools/analyzers/nilvaluecheck"
-	"github.com/authzed/spicedb/tools/analyzers/paniccheck"
+	"spicedb/tools/analyzers/closeafterusagecheck"
+	"spicedb/tools/analyzers/exprstatementcheck"
+	"spicedb/tools/analyzers/nilvaluecheck"
+	"spicedb/tools/analyzers/paniccheck"
 	"golang.org/x/tools/go/analysis/multichecker"
 )
 

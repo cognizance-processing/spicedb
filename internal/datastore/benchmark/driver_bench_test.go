@@ -12,16 +12,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/crdb"
-	"github.com/authzed/spicedb/internal/datastore/mysql"
-	"github.com/authzed/spicedb/internal/datastore/postgres"
-	"github.com/authzed/spicedb/internal/datastore/spanner"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/internal/testserver/datastore/config"
-	dsconfig "github.com/authzed/spicedb/pkg/cmd/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/crdb"
+	"spicedb/internal/datastore/mysql"
+	"spicedb/internal/datastore/postgres"
+	"spicedb/internal/datastore/spanner"
+	"spicedb/internal/testfixtures"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/internal/testserver/datastore/config"
+	dsconfig "spicedb/pkg/cmd/datastore"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 const (

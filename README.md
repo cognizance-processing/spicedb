@@ -55,13 +55,13 @@ You can find issues by priority: [Urgent], [High], [Medium], [Low], [Maybe].
 There are also [good first issues].
 
 [Discord]: https://authzed.com/discord
-[CONTRIBUTING.md]: https://github.com/authzed/spicedb/blob/main/CONTRIBUTING.md
-[Urgent]: https://github.com/authzed/spicedb/labels/priority%2F0%20urgent
-[High]: https://github.com/authzed/spicedb/labels/priority%2F1%20high
-[Medium]: https://github.com/authzed/spicedb/labels/priority%2F2%20medium
-[Low]: https://github.com/authzed/spicedb/labels/priority%2F3%20low
-[Maybe]: https://github.com/authzed/spicedb/labels/priority%2F4%20maybe
-[good first issues]: https://github.com/authzed/spicedb/labels/hint%2Fgood%20first%20issue
+[CONTRIBUTING.md]: https://spicedb/blob/main/CONTRIBUTING.md
+[Urgent]: https://spicedb/labels/priority%2F0%20urgent
+[High]: https://spicedb/labels/priority%2F1%20high
+[Medium]: https://spicedb/labels/priority%2F2%20medium
+[Low]: https://spicedb/labels/priority%2F3%20low
+[Maybe]: https://spicedb/labels/priority%2F4%20maybe
+[good first issues]: https://spicedb/labels/hint%2Fgood%20first%20issue
 
 ## Getting Started
 
@@ -105,7 +105,7 @@ sudo dnf install spicedb
 Container images are available for AMD64 and ARM64 architectures on the following registries:
 
 - [authzed/spicedb](https://hub.docker.com/r/authzed/spicedb)
-- [ghcr.io/authzed/spicedb](https://github.com/authzed/spicedb/pkgs/container/spicedb)
+- [ghcr.io/authzed/spicedb](https://spicedb/pkgs/container/spicedb)
 - [quay.io/authzed/spicedb](https://quay.io/authzed/spicedb)
 
 [Docker] users can run the latest SpiceDB container with the following:
@@ -141,7 +141,7 @@ kubectl apply -f https://raw.githubusercontent.com/authzed/examples/main/kuberne
 
 [examples]: https://github.com/authzed/examples
 [Docker Compose]: https://github.com/authzed/examples/tree/main/datastores
-[SpiceDB Operator]: https://github.com/authzed/spicedb-operator
+[SpiceDB Operator]: https://spicedb-operator
 [testing SpiceDB on Kubernetes]: https://github.com/authzed/examples/tree/main/kubernetes
 
 ### Developing your own schema

@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 
 	"github.com/google/cel-go/cel"
 )

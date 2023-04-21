@@ -1,9 +1,9 @@
 package datasets
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 // TODO(jschorr): See if there is a nice way we can combine this withn ONRByTypeSet and the multimap

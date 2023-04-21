@@ -8,9 +8,9 @@ import (
 	"github.com/hashicorp/go-memdb"
 	"github.com/jzelinskie/stringz"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 type txFactory func() (*memdb.Txn, error)

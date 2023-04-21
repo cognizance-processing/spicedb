@@ -1,8 +1,8 @@
 package datastore
 
 import (
-	"github.com/authzed/spicedb/pkg/namespace"
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/namespace"
+	iv1 "spicedb/pkg/proto/impl/v1"
 )
 
 // ComputeObjectTypeStats creates a list of object type stats from an input list of

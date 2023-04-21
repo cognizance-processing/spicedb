@@ -8,8 +8,8 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
 )
 
 func Test_revisionFromTransaction(t *testing.T) {

@@ -8,11 +8,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/pkg/datastore"
-	ns "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	dispatch "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/pkg/datastore"
+	ns "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	dispatch "spicedb/pkg/proto/dispatch/v1"
 )
 
 // RevisionQuantizationTest tests whether or not the requirements for revisions hold

@@ -3,8 +3,8 @@ package datastore
 import (
 	"context"
 
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/pkg/datastore"
 )
 
 // FromContext reads the selected datastore out of a context.Context

@@ -6,9 +6,9 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	dispatch_v1 "github.com/authzed/spicedb/internal/services/dispatch/v1"
-	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/dispatch"
+	dispatch_v1 "spicedb/internal/services/dispatch/v1"
+	dispatchv1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // RegisterGrpcServices registers an internal dispatch service with the specified server.

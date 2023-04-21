@@ -13,10 +13,10 @@ import (
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
 
-	crdbmigrations "github.com/authzed/spicedb/internal/datastore/crdb/migrations"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/migrate"
-	"github.com/authzed/spicedb/pkg/secrets"
+	crdbmigrations "spicedb/internal/datastore/crdb/migrations"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/migrate"
+	"spicedb/pkg/secrets"
 )
 
 const (

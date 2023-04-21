@@ -12,7 +12,7 @@ import (
 	"github.com/pbnjay/memory"
 	"github.com/spf13/pflag"
 
-	"github.com/authzed/spicedb/pkg/cache"
+	"spicedb/pkg/cache"
 )
 
 var (

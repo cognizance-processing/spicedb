@@ -1,12 +1,11 @@
 package postgres
 
 import (
+	"cloud.google.com/go/cloudsqlconn"
 	"context"
 	dbsql "database/sql"
 	"errors"
 	"fmt"
-	"time"
-
 	"github.com/IBM/pgxpoolprometheus"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -17,14 +16,17 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
+	"net"
+	"os"
+	"time"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/common/revisions"
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	"github.com/authzed/spicedb/internal/datastore/postgres/migrations"
-	"github.com/authzed/spicedb/internal/datastore/proxy"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/common/revisions"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/internal/datastore/postgres/migrations"
+	"spicedb/internal/datastore/proxy"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
 )
 
 func init() {
@@ -121,11 +123,57 @@ func NewPostgresDatastore(
 	return proxy.NewSeparatingContextDatastoreProxy(ds), nil
 }
 
+func connectWithConnector() (*pgxpool.Pool, error) {
+	var (
+		dbUser                 = "new"      // e.g. 'my-db-user'
+		dbPwd                  = "Happy456" // e.g. 'my-db-password'
+		dbName                 = "postgres" // e.g. 'my-database'
+		instanceConnectionName = "cog-analytics-backend:us-central1:authz-store-clone"
+		usePrivate             = os.Getenv("PRIVATE_IP")
+	)
+	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelInit()
+	dsn := fmt.Sprintf("user=%s password=%s database=%s", dbUser, dbPwd, dbName)
+	config, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	var opts []cloudsqlconn.Option
+	if usePrivate != "" {
+		opts = append(opts, cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()))
+	}
+	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
+	if err != nil {
+		return nil, err
+	}
+	// Use the Cloud SQL connector to handle connecting to the instance.
+	// This approach does *NOT* require the Cloud SQL proxy.
+	config.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
+		return d.Dial(ctx, instanceConnectionName)
+	}
+	//dbURI := stdlib.RegisterConnConfig(config.ConnConfig)
+	dbPool, err := pgxpool.NewWithConfig(initializationContext, config)
+	if err != nil {
+		return nil, fmt.Errorf("sql.Open: %v", err)
+	}
+	return dbPool, nil
+}
+
 func newPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
+	var (
+		dbUser                 = "new"                                                           // e.g. 'my-db-user'
+		dbPwd                  = "happy456"                                                      // e.g. 'my-db-password'
+		dbName                 = "postgres"                                                      // e.g. 'my-database'
+		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
+		//usePrivate             = os.Getenv("PRIVATE_IP")
+	)
+
+	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s slmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
 	config, err := generateConfig(options)
+	url = dsn
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -137,7 +185,7 @@ func newPostgresDatastore(
 	}
 
 	// config must be initialized by ParseConfig
-	readPoolConfig, err := pgxpool.ParseConfig(url)
+	/*readPoolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -145,9 +193,9 @@ func newPostgresDatastore(
 	readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		RegisterTypes(conn.TypeMap())
 		return nil
-	}
+	}*/
 
-	writePoolConfig, err := pgxpool.ParseConfig(url)
+	/*writePoolConfig, err := pgxpool.ParseConfig(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
@@ -155,21 +203,22 @@ func newPostgresDatastore(
 	writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
 		RegisterTypes(conn.TypeMap())
 		return nil
-	}
+	}*/
 
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
 
-	readPool, err := pgxpool.NewWithConfig(initializationContext, readPoolConfig)
+	readPool, err := connectWithConnector()
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
 
-	writePool, err := pgxpool.NewWithConfig(initializationContext, writePoolConfig)
+	writePool, err := connectWithConnector()
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
 
+	//dbURI := stdlib.RegisterConnConfig(readPoolConfig.ConnConfig)
 	// Verify that the server supports commit timestamps
 	var trackTSOn string
 	if err := readPool.

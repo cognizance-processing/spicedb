@@ -11,11 +11,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/services/shared"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	log "spicedb/internal/logging"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/services/shared"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/zedtoken"
 )
 
 type hasConsistency interface {

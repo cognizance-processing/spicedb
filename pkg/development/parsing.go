@@ -1,10 +1,10 @@
 package development
 
 import (
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/validationfile"
-	"github.com/authzed/spicedb/pkg/validationfile/blocks"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/validationfile"
+	"spicedb/pkg/validationfile/blocks"
 )
 
 // ParseAssertionsYAML parses the YAML form of an assertions block.

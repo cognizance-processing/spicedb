@@ -1,9 +1,9 @@
 package graph
 
 import (
-	"github.com/authzed/spicedb/internal/caveats"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/caveats"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 var (

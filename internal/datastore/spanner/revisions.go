@@ -8,8 +8,8 @@ import (
 	"cloud.google.com/go/spanner"
 	"github.com/shopspring/decimal"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
 )
 
 func (sd spannerDatastore) headRevisionInternal(ctx context.Context) (revision.Decimal, error) {

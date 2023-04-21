@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"time"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 
 	"github.com/prometheus/client_golang/prometheus"
 )

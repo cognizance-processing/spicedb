@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"testing"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/testutil"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/testutil"
 )
 
 func TestShortcircuitedOr(t *testing.T) {

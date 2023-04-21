@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/testfixtures"
+	"spicedb/internal/testfixtures"
 )
 
 const statsRetryCount = 3

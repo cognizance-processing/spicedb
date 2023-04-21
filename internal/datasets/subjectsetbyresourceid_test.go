@@ -7,8 +7,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 func TestSubjectSetByResourceIDBasicOperations(t *testing.T) {

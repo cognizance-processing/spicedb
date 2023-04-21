@@ -1,7 +1,7 @@
 package graph
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // Leaf constructs a RelationTupleTreeNode leaf.

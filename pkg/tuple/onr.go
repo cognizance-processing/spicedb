@@ -6,7 +6,7 @@ import (
 
 	"github.com/jzelinskie/stringz"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // ObjectAndRelation creates an ONR from string pieces.

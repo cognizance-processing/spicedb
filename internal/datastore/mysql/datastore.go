@@ -19,14 +19,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/common/revisions"
-	"github.com/authzed/spicedb/internal/datastore/mysql/migrations"
-	"github.com/authzed/spicedb/internal/datastore/proxy"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/mysql/migrations"
+	"spicedb/internal/datastore/proxy"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 const (

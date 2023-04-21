@@ -9,9 +9,9 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/encoding/prototext"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
+	log "spicedb/internal/logging"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/generator"
 )
 
 type devServer struct {

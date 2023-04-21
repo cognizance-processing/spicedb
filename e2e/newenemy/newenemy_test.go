@@ -20,13 +20,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/pkg/datastore/revision"
+	"spicedb/pkg/zedtoken"
 
-	"github.com/authzed/spicedb/e2e"
-	"github.com/authzed/spicedb/e2e/cockroach"
-	"github.com/authzed/spicedb/e2e/generator"
-	"github.com/authzed/spicedb/e2e/spice"
+	"spicedb/e2e"
+	"spicedb/e2e/cockroach"
+	"spicedb/e2e/generator"
+	"spicedb/e2e/spice"
 )
 
 type NamespaceNames struct {

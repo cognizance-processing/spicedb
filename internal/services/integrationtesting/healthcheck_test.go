@@ -13,13 +13,13 @@ import (
 	"google.golang.org/grpc"
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	tf "github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/internal/testserver"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/internal/testserver/datastore/config"
-	dsconfig "github.com/authzed/spicedb/pkg/cmd/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/memdb"
+	tf "spicedb/internal/testfixtures"
+	"spicedb/internal/testserver"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/internal/testserver/datastore/config"
+	dsconfig "spicedb/pkg/cmd/datastore"
+	"spicedb/pkg/datastore"
 )
 
 func TestHealthCheck(t *testing.T) {

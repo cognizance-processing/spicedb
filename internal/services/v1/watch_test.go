@@ -16,11 +16,11 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/internal/testserver"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/testfixtures"
+	"spicedb/internal/testserver"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/zedtoken"
 )
 
 func update(

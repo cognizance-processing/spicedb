@@ -15,17 +15,17 @@ import (
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/testing/protocmp"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	expand "github.com/authzed/spicedb/internal/graph"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/graph"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/testutil"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/memdb"
+	expand "spicedb/internal/graph"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/testfixtures"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/graph"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/testutil"
+	"spicedb/pkg/tuple"
 )
 
 func DS(objectType string, objectID string, objectRelation string) *core.DirectSubject {

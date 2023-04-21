@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
 )
 
 type crdbOptions struct {

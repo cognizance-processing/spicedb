@@ -10,14 +10,14 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/dispatch/caching"
-	"github.com/authzed/spicedb/internal/dispatch/graph"
-	"github.com/authzed/spicedb/internal/dispatch/keys"
-	"github.com/authzed/spicedb/internal/dispatch/remote"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cache"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/dispatch/caching"
+	"spicedb/internal/dispatch/graph"
+	"spicedb/internal/dispatch/keys"
+	"spicedb/internal/dispatch/remote"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/cache"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // Option is a function-style option for configuring a combined Dispatcher.

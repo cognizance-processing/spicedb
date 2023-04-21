@@ -3,15 +3,15 @@ package shared
 import (
 	"context"
 
-	"github.com/authzed/spicedb/internal/caveats"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/caveats"
+	log "spicedb/internal/logging"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // ValidatedSchemaChanges is a set of validated schema changes that can be applied to the datastore.

@@ -7,17 +7,17 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/util"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/compiler"
 
 	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/singleflight"
 
-	"github.com/authzed/spicedb/pkg/cache"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/cache"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // *DefinitionSizeVTMultiplier are the mulitipliers to be used for

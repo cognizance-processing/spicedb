@@ -3,10 +3,10 @@ package development
 import (
 	"fmt"
 
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/validationfile/blocks"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/validationfile/blocks"
 )
 
 const maxDispatchDepth = 25

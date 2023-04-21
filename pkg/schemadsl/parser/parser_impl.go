@@ -3,9 +3,9 @@ package parser
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/dslshape"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/schemadsl/lexer"
+	"spicedb/pkg/schemadsl/dslshape"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/schemadsl/lexer"
 )
 
 // AstNode defines an interface for working with nodes created by this parser.

@@ -5,8 +5,8 @@ import (
 	"github.com/jzelinskie/cobrautil/v2/cobrazerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/releases"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/releases"
 )
 
 func RegisterRootFlags(cmd *cobra.Command) {

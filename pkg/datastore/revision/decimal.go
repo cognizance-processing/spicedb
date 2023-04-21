@@ -3,7 +3,7 @@ package revision
 import (
 	"github.com/shopspring/decimal"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 type Decimal struct {

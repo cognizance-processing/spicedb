@@ -8,12 +8,12 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	cexpr "github.com/authzed/spicedb/internal/caveats"
-	"github.com/authzed/spicedb/pkg/datastore"
-	dispatch "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
-	"github.com/authzed/spicedb/pkg/tuple"
+	cexpr "spicedb/internal/caveats"
+	"spicedb/pkg/datastore"
+	dispatch "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/generator"
+	"spicedb/pkg/tuple"
 )
 
 // ConvertCheckDispatchDebugInformation converts dispatch debug information found in the response metadata

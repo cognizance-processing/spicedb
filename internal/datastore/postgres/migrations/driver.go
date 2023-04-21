@@ -7,9 +7,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/lib/pq"
-
-	"github.com/authzed/spicedb/pkg/migrate"
+	"spicedb/pkg/migrate"
 )
 
 const postgresMissingTableErrorCode = "42P01"
@@ -24,12 +22,17 @@ type AlembicPostgresDriver struct {
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
-	connectStr, err := pq.ParseURL(url)
-	if err != nil {
-		return nil, err
-	}
+	var (
+		dbUser                 = "new"                                                           // e.g. 'my-db-user'
+		dbPwd                  = "happy456"                                                      // e.g. 'my-db-password'
+		dbName                 = "postgres"                                                      // e.g. 'my-database'
+		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
+		//usePrivate             = os.Getenv("PRIVATE_IP")
+	)
 
-	db, err := pgx.Connect(context.Background(), connectStr)
+	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s slmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
+
+	db, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
 		return nil, err
 	}

@@ -3,7 +3,7 @@ package server
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/util"
 
 	"google.golang.org/grpc"
 )

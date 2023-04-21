@@ -7,12 +7,12 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/authzed/spicedb/pkg/development"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/development"
+	core "spicedb/pkg/proto/core/v1"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/schemadsl/generator"
+	"spicedb/pkg/tuple"
 )
 
 func runOperation(devContext *development.DevContext, operation *devinterface.Operation) (*devinterface.OperationResult, error) {

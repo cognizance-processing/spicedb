@@ -7,7 +7,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/tuple"
 
 	"github.com/authzed/authzed-go/pkg/responsemeta"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
@@ -15,10 +15,10 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	tf "github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/internal/testserver"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/memdb"
+	tf "spicedb/internal/testfixtures"
+	"spicedb/internal/testserver"
+	"spicedb/pkg/zedtoken"
 )
 
 func TestAllMethodsReturnMetadata(t *testing.T) {

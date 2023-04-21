@@ -3,9 +3,9 @@ package namespace
 import (
 	"google.golang.org/protobuf/types/known/anypb"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
+	iv1 "spicedb/pkg/proto/impl/v1"
 )
 
 // WithSourcePosition defines an interface for proto messages in core with SourcePosition information attached.

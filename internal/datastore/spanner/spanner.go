@@ -14,13 +14,13 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/common/revisions"
-	"github.com/authzed/spicedb/internal/datastore/spanner/migrations"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/spanner/migrations"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 func init() {

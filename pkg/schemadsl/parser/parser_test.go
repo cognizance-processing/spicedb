@@ -10,8 +10,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/dslshape"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/schemadsl/dslshape"
+	"spicedb/pkg/schemadsl/input"
 )
 
 type testNode struct {

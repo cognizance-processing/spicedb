@@ -9,10 +9,10 @@ import (
 
 	yamlv3 "gopkg.in/yaml.v3"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 )
 
 // ParsedExpectedRelations represents the expected relations defined in the validation

@@ -12,13 +12,13 @@ import (
 	"github.com/jzelinskie/stringz"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/spanner"
-	"github.com/authzed/spicedb/internal/testserver"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/internal/testserver/datastore/config"
-	dsconfig "github.com/authzed/spicedb/pkg/cmd/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/spanner"
+	"spicedb/internal/testserver"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/internal/testserver/datastore/config"
+	dsconfig "spicedb/pkg/cmd/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/tuple"
 )
 
 type testCase struct {

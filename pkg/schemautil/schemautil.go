@@ -3,11 +3,11 @@ package schemautil
 import (
 	"context"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 
-	"github.com/authzed/spicedb/internal/services/shared"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
+	"spicedb/internal/services/shared"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
 )
 
 // ValidateSchemaChanges validates the schema found in the compiled schema and returns a

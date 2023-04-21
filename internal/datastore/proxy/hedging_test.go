@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/proxy/proxy_test"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	"spicedb/pkg/datastore/revision"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 var (
@@ -138,7 +138,7 @@ func TestDatastoreRequestHedging(t *testing.T) {
 	for _, tc := range testCases {
 		tc := tc
 		t.Run(tc.methodName, func(t *testing.T) {
-			defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("github.com/authzed/spicedb/internal/datastore/proxy.autoAdvance.func1"), goleak.IgnoreCurrent())
+			defer goleak.VerifyNone(t, goleak.IgnoreTopFunction("spicedb/internal/datastore/proxy.autoAdvance.func1"), goleak.IgnoreCurrent())
 			mockTime := clock.NewMock()
 			delegateDS := &proxy_test.MockDatastore{}
 			proxy, err := newHedgingProxyWithTimeSource(

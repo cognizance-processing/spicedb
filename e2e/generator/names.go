@@ -3,7 +3,7 @@ package generator
 import (
 	"github.com/brianvoe/gofakeit/v6"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/lexer"
+	"spicedb/pkg/schemadsl/lexer"
 )
 
 type UniqueGenerator struct {

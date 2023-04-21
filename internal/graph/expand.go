@@ -5,16 +5,16 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/authzed/spicedb/internal/caveats"
+	"spicedb/internal/caveats"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	log "github.com/authzed/spicedb/internal/logging"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/internal/dispatch"
+	log "spicedb/internal/logging"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // NewConcurrentExpander creates an instance of ConcurrentExpander

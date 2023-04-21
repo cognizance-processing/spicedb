@@ -7,8 +7,8 @@ import (
 
 	"github.com/rs/zerolog"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	log "spicedb/internal/logging"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // ErrMaxDepth is returned from CheckDepth when the max depth is exceeded.

@@ -1,9 +1,9 @@
 package developmentmembership
 
 import (
-	"github.com/authzed/spicedb/internal/datasets"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datasets"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 // TrackingSubjectSet defines a set that tracks accessible subjects and their associated

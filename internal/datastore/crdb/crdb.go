@@ -16,14 +16,14 @@ import (
 	"github.com/shopspring/decimal"
 	"go.opentelemetry.io/otel"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/internal/datastore/common/revisions"
-	"github.com/authzed/spicedb/internal/datastore/crdb/migrations"
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	"github.com/authzed/spicedb/internal/datastore/proxy"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/crdb/migrations"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/internal/datastore/proxy"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
 )
 
 func init() {

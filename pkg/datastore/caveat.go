@@ -3,7 +3,7 @@ package datastore
 import (
 	"context"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // RevisionedCaveat is a revisioned version of a caveat definition.

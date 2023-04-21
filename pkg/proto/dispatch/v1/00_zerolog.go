@@ -3,7 +3,7 @@ package dispatchv1
 import (
 	"github.com/rs/zerolog"
 
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/tuple"
 )
 
 // MarshalZerologObject implements zerolog object marshalling.

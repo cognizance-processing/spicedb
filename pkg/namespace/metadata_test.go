@@ -6,9 +6,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/types/known/anypb"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
+	iv1 "spicedb/pkg/proto/impl/v1"
 )
 
 func TestMetadata(t *testing.T) {

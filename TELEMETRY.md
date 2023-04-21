@@ -11,7 +11,7 @@ Telemetry is reported via the Prometheus Remote Write protocol.
 Any metrics prefixed with `spicedb_telemetry` are reported hourly to `telemetry.authzed.com`.
 You can find all of the code in [internal/telemetry][telemetry-package].
 
-[telemetry-package]: https://github.com/authzed/spicedb/tree/main/internal/telemetry
+[telemetry-package]: https://spicedb/tree/main/internal/telemetry
 
 ## Collected metrics
 

@@ -3,7 +3,7 @@ package common
 import (
 	"context"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 )
 
 // LogOnError executes the function and logs the error.

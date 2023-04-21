@@ -10,7 +10,7 @@ import (
 	"github.com/outcaste-io/ristretto/z"
 	"github.com/rs/zerolog"
 
-	"github.com/authzed/spicedb/internal/dispatch/keys"
+	"spicedb/internal/dispatch/keys"
 )
 
 func ristrettoConfig(config *Config) *ristretto.Config {

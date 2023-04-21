@@ -3,10 +3,10 @@ package namespace
 import (
 	"context"
 
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/util"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // ReadNamespaceAndRelation checks that the specified namespace and relation exist in the

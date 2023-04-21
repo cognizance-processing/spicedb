@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // EncodeParameterTypes converts the map of internal caveat types into a map of types for storing

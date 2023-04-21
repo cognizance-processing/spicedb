@@ -16,16 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	pgcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/test"
-	"github.com/authzed/spicedb/pkg/migrate"
-	"github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/common"
+	pgcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/internal/testfixtures"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/test"
+	"spicedb/pkg/migrate"
+	"spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 func TestPostgresDatastore(t *testing.T) {

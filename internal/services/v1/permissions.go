@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 
 	"github.com/authzed/authzed-go/pkg/requestmeta"
 	"github.com/authzed/authzed-go/pkg/responsemeta"
@@ -18,17 +18,17 @@ import (
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	cexpr "github.com/authzed/spicedb/internal/caveats"
-	dispatchpkg "github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/graph"
-	"github.com/authzed/spicedb/internal/graph/computed"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/middleware/usagemetrics"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/middleware/consistency"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	dispatch "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	cexpr "spicedb/internal/caveats"
+	dispatchpkg "spicedb/internal/dispatch"
+	"spicedb/internal/graph"
+	"spicedb/internal/graph/computed"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/middleware/usagemetrics"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/middleware/consistency"
+	core "spicedb/pkg/proto/core/v1"
+	dispatch "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 func (ps *permissionServer) CheckPermission(ctx context.Context, req *v1.CheckPermissionRequest) (*v1.CheckPermissionResponse, error) {

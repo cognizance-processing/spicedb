@@ -4,19 +4,19 @@ import (
 	"context"
 	"time"
 
-	"github.com/authzed/spicedb/internal/middleware/servicespecific"
+	"spicedb/internal/middleware/servicespecific"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/dispatch/graph"
-	"github.com/authzed/spicedb/internal/middleware/consistency"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/util"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/middleware/logging"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/dispatch/graph"
+	"spicedb/internal/middleware/consistency"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/util"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/middleware/logging"
 )
 
 // ServerConfig is configuration for the test server.

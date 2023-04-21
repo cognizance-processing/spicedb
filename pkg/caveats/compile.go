@@ -6,8 +6,8 @@ import (
 	"github.com/google/cel-go/cel"
 	"github.com/google/cel-go/common"
 
-	impl "github.com/authzed/spicedb/pkg/proto/impl/v1"
-	"github.com/authzed/spicedb/pkg/util"
+	impl "spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/util"
 )
 
 const anonymousCaveat = ""

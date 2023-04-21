@@ -9,9 +9,9 @@ import (
 	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/proxy/proxy_test"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/pkg/datastore/revision"
+	"spicedb/pkg/zedtoken"
 )
 
 var (

@@ -9,8 +9,8 @@ import (
 	"google.golang.org/api/option"
 	"google.golang.org/grpc/codes"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/migrate"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/migrate"
 )
 
 const (

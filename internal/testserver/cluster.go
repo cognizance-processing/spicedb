@@ -18,12 +18,12 @@ import (
 	"google.golang.org/grpc/balancer"
 	"google.golang.org/grpc/resolver"
 
-	combineddispatch "github.com/authzed/spicedb/internal/dispatch/combined"
-	hashbalancer "github.com/authzed/spicedb/pkg/balancer"
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/util"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/secrets"
+	combineddispatch "spicedb/internal/dispatch/combined"
+	hashbalancer "spicedb/pkg/balancer"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/util"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/secrets"
 )
 
 const TestResolverScheme = "test"

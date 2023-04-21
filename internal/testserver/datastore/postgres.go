@@ -13,11 +13,11 @@ import (
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
 
-	pgmigrations "github.com/authzed/spicedb/internal/datastore/postgres/migrations"
-	pgversion "github.com/authzed/spicedb/internal/datastore/postgres/version"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/migrate"
-	"github.com/authzed/spicedb/pkg/secrets"
+	pgmigrations "spicedb/internal/datastore/postgres/migrations"
+	pgversion "spicedb/internal/datastore/postgres/version"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/migrate"
+	"spicedb/pkg/secrets"
 )
 
 type postgresTester struct {

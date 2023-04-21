@@ -11,7 +11,7 @@ Note: MySQL is using `mysql:5` image which doesn't have an arm image.
 ```sh
 goos: darwin
 goarch: arm64
-pkg: github.com/authzed/spicedb/internal/datastore/benchmark
+pkg: spicedb/internal/datastore/benchmark
 BenchmarkDatastoreDriver/postgres/TestTuple/SnapshotRead-10                 	    2100	    532025 ns/op	   13948 B/op	     232 allocs/op
 BenchmarkDatastoreDriver/postgres/TestTuple/Touch-10                        	     500	   2289054 ns/op	   16622 B/op	     269 allocs/op
 BenchmarkDatastoreDriver/postgres/TestTuple/Create-10                       	     720	   1820216 ns/op	   10057 B/op	     141 allocs/op

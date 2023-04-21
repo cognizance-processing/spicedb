@@ -2,7 +2,7 @@
 
 ## Communication
 
-- Issues: [GitHub](https://github.com/authzed/spicedb/issues)
+- Issues: [GitHub](https://spicedb/issues)
 - Email: [Google Groups](https://groups.google.com/g/authzed-oss)
 - Discord: [Zanzibar Discord](https://discord.gg/jTysUaxXzM)
 

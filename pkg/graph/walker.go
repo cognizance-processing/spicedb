@@ -1,8 +1,8 @@
 package graph
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // WalkHandler is a function invoked for each node in the rewrite tree. If it returns non-nil,

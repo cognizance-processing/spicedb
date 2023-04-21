@@ -12,16 +12,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/datastore/proxy/proxy_test"
-	"github.com/authzed/spicedb/pkg/caveats"
-	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	ns "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/testutil"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/pkg/caveats"
+	caveattypes "spicedb/pkg/caveats/types"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	ns "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/testutil"
+	"spicedb/pkg/util"
 )
 
 var (

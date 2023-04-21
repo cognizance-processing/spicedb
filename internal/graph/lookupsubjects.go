@@ -7,16 +7,16 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/authzed/spicedb/internal/datasets"
-	"github.com/authzed/spicedb/internal/dispatch"
-	log "github.com/authzed/spicedb/internal/logging"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/datasets"
+	"spicedb/internal/dispatch"
+	log "spicedb/internal/logging"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // ValidatedLookupSubjectsRequest represents a request after it has been validated and parsed for internal

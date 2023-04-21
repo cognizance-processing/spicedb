@@ -4,10 +4,10 @@ import (
 	"github.com/scylladb/go-set/strset"
 	"google.golang.org/protobuf/proto"
 
-	nspkg "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
-	"github.com/authzed/spicedb/pkg/util"
+	nspkg "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	iv1 "spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/util"
 )
 
 // DeltaType defines the type of namespace deltas.

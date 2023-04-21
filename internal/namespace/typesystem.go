@@ -4,14 +4,14 @@ import (
 	"context"
 	"fmt"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/pkg/graph"
-	nspkg "github.com/authzed/spicedb/pkg/namespace"
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/pkg/graph"
+	nspkg "spicedb/pkg/namespace"
+	iv1 "spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // AllowedDirectRelation indicates whether a relation is allowed on the right side of another relation.

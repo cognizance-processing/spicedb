@@ -8,8 +8,8 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/common"
+	"spicedb/pkg/datastore"
 )
 
 var (

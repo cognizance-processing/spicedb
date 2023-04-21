@@ -4,10 +4,10 @@ import (
 	"context"
 	"sort"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 // Changes represents a set of tuple mutations that are kept self-consistent

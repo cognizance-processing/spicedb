@@ -5,9 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
-	"github.com/authzed/spicedb/pkg/cmd/util"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/testserver"
+	"spicedb/pkg/cmd/util"
 )
 
 func RegisterTestingFlags(cmd *cobra.Command, config *testserver.Config) {

@@ -7,8 +7,8 @@ import (
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 )
 
 // ParsedRelationships is the parsed relationships in a validationfile.

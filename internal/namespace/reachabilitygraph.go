@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"sync"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 // ReachabilityGraph is a helper struct that provides an easy way to determine all entrypoints

@@ -15,7 +15,7 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	dispatch "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	dispatch "spicedb/pkg/proto/dispatch/v1"
 )
 
 type testServer struct {

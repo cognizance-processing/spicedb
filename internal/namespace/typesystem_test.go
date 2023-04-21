@@ -4,15 +4,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/caveats"
+	"spicedb/pkg/caveats"
 
 	"github.com/stretchr/testify/require"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/pkg/datastore"
-	ns "github.com/authzed/spicedb/pkg/namespace"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/pkg/datastore"
+	ns "spicedb/pkg/namespace"
 )
 
 func TestTypeSystem(t *testing.T) {

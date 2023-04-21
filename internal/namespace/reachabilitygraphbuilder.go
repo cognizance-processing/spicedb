@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 type reachabilityOption int

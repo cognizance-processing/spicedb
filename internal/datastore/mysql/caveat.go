@@ -6,10 +6,10 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/datastore/common"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	core "spicedb/pkg/proto/core/v1"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/shopspring/decimal"

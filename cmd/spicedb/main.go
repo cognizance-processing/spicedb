@@ -10,11 +10,11 @@ import (
 	"google.golang.org/grpc/balancer"
 	_ "google.golang.org/grpc/xds"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	consistentbalancer "github.com/authzed/spicedb/pkg/balancer"
-	"github.com/authzed/spicedb/pkg/cmd"
-	cmdutil "github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
+	log "spicedb/internal/logging"
+	consistentbalancer "spicedb/pkg/balancer"
+	"spicedb/pkg/cmd"
+	cmdutil "spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/testserver"
 )
 
 var errParsing = errors.New("parsing error")

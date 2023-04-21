@@ -24,12 +24,12 @@ import (
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
 
-	crdbmigrations "github.com/authzed/spicedb/internal/datastore/crdb/migrations"
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	"github.com/authzed/spicedb/pkg/datastore/test"
-	"github.com/authzed/spicedb/pkg/migrate"
+	crdbmigrations "spicedb/internal/datastore/crdb/migrations"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	"spicedb/pkg/datastore/test"
+	"spicedb/pkg/migrate"
 )
 
 func TestCRDBDatastore(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 var (

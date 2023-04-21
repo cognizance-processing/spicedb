@@ -7,7 +7,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/authzed/spicedb/internal/sharederrors"
+	"spicedb/internal/sharederrors"
 )
 
 // ErrNamespaceNotFound occurs when a namespace was not found.

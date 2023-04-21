@@ -5,20 +5,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/internal/dispatch"
+	"spicedb/internal/dispatch"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/dispatch/caching"
-	"github.com/authzed/spicedb/internal/dispatch/graph"
-	"github.com/authzed/spicedb/internal/dispatch/keys"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/testserver"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/validationfile"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/dispatch/caching"
+	"spicedb/internal/dispatch/graph"
+	"spicedb/internal/dispatch/keys"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/namespace"
+	"spicedb/internal/testserver"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/validationfile"
 )
 
 const defaultConcurrencyLimit = 10

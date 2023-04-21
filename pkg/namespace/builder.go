@@ -1,10 +1,10 @@
 package namespace
 
 import (
-	"github.com/authzed/spicedb/pkg/caveats"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/caveats"
+	core "spicedb/pkg/proto/core/v1"
+	iv1 "spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // Namespace creates a namespace definition with one or more defined relations.

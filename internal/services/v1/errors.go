@@ -12,15 +12,15 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	"github.com/authzed/spicedb/internal/graph"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/services/shared"
-	"github.com/authzed/spicedb/internal/sharederrors"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/graph"
+	log "spicedb/internal/logging"
+	"spicedb/internal/namespace"
+	"spicedb/internal/services/shared"
+	"spicedb/internal/sharederrors"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 )
 
 // ErrExceedsMaximumUpdates occurs when too many updates are given to a call.

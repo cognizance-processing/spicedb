@@ -6,7 +6,7 @@ package dispatchv1
 
 import (
 	fmt "fmt"
-	v1 "github.com/authzed/spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/core/v1"
 	proto "google.golang.org/protobuf/proto"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	structpb "google.golang.org/protobuf/types/known/structpb"

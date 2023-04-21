@@ -13,9 +13,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/validationfile"
+	"spicedb/internal/datastore/memdb"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/validationfile"
 )
 
 const retryCount = 5

@@ -3,7 +3,7 @@ package validationfile
 import (
 	yamlv3 "gopkg.in/yaml.v3"
 
-	"github.com/authzed/spicedb/pkg/validationfile/blocks"
+	"spicedb/pkg/validationfile/blocks"
 )
 
 // DecodeValidationFile decodes the validation file as found in the contents bytes

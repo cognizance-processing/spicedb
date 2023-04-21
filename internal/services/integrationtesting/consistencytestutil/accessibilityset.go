@@ -6,15 +6,15 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 
-	"github.com/authzed/spicedb/internal/developmentmembership"
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/dispatch/graph"
-	"github.com/authzed/spicedb/internal/graph/computed"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/developmentmembership"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/dispatch/graph"
+	"spicedb/internal/graph/computed"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	dispatchv1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // ObjectAndPermission contains an object ID and whether it is a caveated result.

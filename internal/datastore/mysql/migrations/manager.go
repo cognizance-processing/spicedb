@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/authzed/spicedb/pkg/migrate"
+	"spicedb/pkg/migrate"
 )
 
 const migrationNamePattern = `^[_a-zA-Z]*$`

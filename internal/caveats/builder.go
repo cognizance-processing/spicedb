@@ -1,7 +1,7 @@
 package caveats
 
 import (
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // CaveatAsExpr wraps a contextualized caveat into a caveat expression.

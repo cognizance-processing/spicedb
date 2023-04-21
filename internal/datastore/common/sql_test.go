@@ -3,14 +3,14 @@ package common
 import (
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/tuple"
 
 	sq "github.com/Masterminds/squirrel"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 func TestSchemaQueryFilterer(t *testing.T) {

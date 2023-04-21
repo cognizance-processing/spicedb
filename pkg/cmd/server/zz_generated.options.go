@@ -2,11 +2,11 @@
 package server
 
 import (
-	dispatch "github.com/authzed/spicedb/internal/dispatch"
-	graph "github.com/authzed/spicedb/internal/dispatch/graph"
-	datastore "github.com/authzed/spicedb/pkg/cmd/datastore"
-	util "github.com/authzed/spicedb/pkg/cmd/util"
-	datastore1 "github.com/authzed/spicedb/pkg/datastore"
+	dispatch "spicedb/internal/dispatch"
+	graph "spicedb/internal/dispatch/graph"
+	datastore "spicedb/pkg/cmd/datastore"
+	util "spicedb/pkg/cmd/util"
+	datastore1 "spicedb/pkg/datastore"
 	auth "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/auth"
 	grpc "google.golang.org/grpc"
 	"time"

@@ -1,7 +1,7 @@
 syntax = "proto3";
 package dispatch.v1;
 
-option go_package = "github.com/authzed/spicedb/pkg/proto/dispatch/v1";
+option go_package = "spicedb/pkg/proto/dispatch/v1";
 
 import "validate/validate.proto";
 import "core/v1/core.proto";

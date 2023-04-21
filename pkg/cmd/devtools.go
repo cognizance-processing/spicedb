@@ -26,9 +26,9 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/reflection"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	v0svc "github.com/authzed/spicedb/internal/services/v0"
-	"github.com/authzed/spicedb/pkg/cmd/server"
+	log "spicedb/internal/logging"
+	v0svc "spicedb/internal/services/v0"
+	"spicedb/pkg/cmd/server"
 )
 
 func RegisterDevtoolsFlags(cmd *cobra.Command) {

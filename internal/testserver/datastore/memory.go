@@ -6,7 +6,7 @@ package datastore
 import (
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 type memoryTest struct{}

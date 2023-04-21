@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/caveats/types"
+	"spicedb/pkg/caveats/types"
 )
 
 func TestAddVariable(t *testing.T) {

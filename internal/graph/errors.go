@@ -6,7 +6,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/authzed/spicedb/internal/sharederrors"
+	"spicedb/internal/sharederrors"
 )
 
 // ErrRequestCanceled occurs when a request has been canceled.

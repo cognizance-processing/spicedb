@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/authzed/spicedb/internal/logging"
+	"spicedb/internal/logging"
 )
 
 func TestError(_ *testing.T) {

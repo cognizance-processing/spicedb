@@ -3,16 +3,16 @@ package relationships
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/internal/namespace"
+	"spicedb/internal/namespace"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
 )
 
 // ErrInvalidSubjectType indicates that a write was attempted with a subject type which is not

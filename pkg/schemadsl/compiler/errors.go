@@ -3,7 +3,7 @@ package compiler
 import (
 	"strconv"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/schemadsl/input"
 )
 
 // BaseCompilerError defines an error with contains the base message of the issue

@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cmd/util"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/logging"
+	"spicedb/pkg/cmd/util"
 
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"

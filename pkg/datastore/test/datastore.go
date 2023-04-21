@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/namespace"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/namespace"
 )
 
 // veryLargeGCWindow is a very large time duration, which when passed to a constructor should

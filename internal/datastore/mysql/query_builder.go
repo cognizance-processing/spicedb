@@ -1,7 +1,7 @@
 package mysql
 
 import (
-	"github.com/authzed/spicedb/internal/datastore/mysql/migrations"
+	"spicedb/internal/datastore/mysql/migrations"
 
 	sq "github.com/Masterminds/squirrel"
 )

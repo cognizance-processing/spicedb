@@ -6,8 +6,8 @@ import (
 	middleware "github.com/grpc-ecosystem/go-grpc-middleware/v2"
 	"google.golang.org/grpc"
 
-	"github.com/authzed/spicedb/internal/datastore/proxy"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
+	"spicedb/internal/datastore/proxy"
+	datastoremw "spicedb/internal/middleware/datastore"
 )
 
 // UnaryServerInterceptor returns a new unary server interceptor that sets the datastore to readonly

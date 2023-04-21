@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/datastore"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // Ellipsis relation is used to signify a semantic-free relationship.

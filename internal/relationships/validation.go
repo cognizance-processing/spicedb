@@ -3,13 +3,13 @@ package relationships
 import (
 	"context"
 
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/caveats"
-	"github.com/authzed/spicedb/pkg/datastore"
-	ns "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/caveats"
+	"spicedb/pkg/datastore"
+	ns "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 // ValidateRelationshipUpdates performs validation on the given relationship updates, ensuring that

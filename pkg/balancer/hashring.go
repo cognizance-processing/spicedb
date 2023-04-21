@@ -11,7 +11,7 @@ import (
 	"google.golang.org/grpc/balancer/base"
 	"google.golang.org/grpc/grpclog"
 
-	"github.com/authzed/spicedb/pkg/consistent"
+	"spicedb/pkg/consistent"
 )
 
 type ctxKey string

@@ -8,18 +8,18 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	log "github.com/authzed/spicedb/internal/logging"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/pkg/datastore"
-	nspkg "github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	iv1 "github.com/authzed/spicedb/pkg/proto/impl/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	"spicedb/internal/dispatch"
+	log "spicedb/internal/logging"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/internal/namespace"
+	"spicedb/pkg/datastore"
+	nspkg "spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	iv1 "spicedb/pkg/proto/impl/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 var dispatchChunkCountHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{

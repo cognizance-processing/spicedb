@@ -8,11 +8,11 @@ import (
 	"github.com/google/go-cmp/cmp"
 	yaml "gopkg.in/yaml.v2"
 
-	"github.com/authzed/spicedb/internal/developmentmembership"
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/validationfile/blocks"
+	"spicedb/internal/developmentmembership"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/validationfile/blocks"
 )
 
 // RunValidation runs the parsed validation block against the data in the dev context.

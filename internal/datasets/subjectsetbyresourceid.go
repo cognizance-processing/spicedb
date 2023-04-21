@@ -3,8 +3,8 @@ package datasets
 import (
 	"fmt"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // NewSubjectSetByResourceID creates and returns a map of subject sets, indexed by resource ID.

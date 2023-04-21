@@ -3,8 +3,8 @@ package caveats
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/caveats/types"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/caveats/types"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // UnknownParameterOption is the option to ConvertContextToParameters around handling

@@ -7,13 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/common"
 
 	sq "github.com/Masterminds/squirrel"
 	sqlDriver "github.com/go-sql-driver/mysql"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/migrate"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/migrate"
 )
 
 const (

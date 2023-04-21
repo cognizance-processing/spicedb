@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
-	"github.com/authzed/spicedb/pkg/util"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/util"
 )
 
 func set(subjects ...*core.DirectSubject) *TrackingSubjectSet {

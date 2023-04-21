@@ -9,8 +9,8 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/releases"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/releases"
 )
 
 // HandleServerVersion defines a middleware for returning the version of the server

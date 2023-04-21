@@ -7,8 +7,8 @@ import (
 
 	"github.com/hashicorp/go-memdb"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
 )
 
 const errWatchError = "watch error: %w"

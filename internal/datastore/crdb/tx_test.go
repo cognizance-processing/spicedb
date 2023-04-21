@@ -12,10 +12,10 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/stretchr/testify/require"
 
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/revision"
-	"github.com/authzed/spicedb/pkg/namespace"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/revision"
+	"spicedb/pkg/namespace"
 )
 
 const (

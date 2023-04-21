@@ -14,8 +14,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
+	core "spicedb/pkg/proto/core/v1"
+	devinterface "spicedb/pkg/proto/developer/v1"
 )
 
 func TestMissingArgument(t *testing.T) {

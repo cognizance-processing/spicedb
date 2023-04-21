@@ -9,14 +9,14 @@ import (
 	"github.com/jzelinskie/cobrautil/v2"
 	"github.com/spf13/cobra"
 
-	crdbmigrations "github.com/authzed/spicedb/internal/datastore/crdb/migrations"
-	mysqlmigrations "github.com/authzed/spicedb/internal/datastore/mysql/migrations"
-	"github.com/authzed/spicedb/internal/datastore/postgres/migrations"
-	spannermigrations "github.com/authzed/spicedb/internal/datastore/spanner/migrations"
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/migrate"
+	crdbmigrations "spicedb/internal/datastore/crdb/migrations"
+	mysqlmigrations "spicedb/internal/datastore/mysql/migrations"
+	"spicedb/internal/datastore/postgres/migrations"
+	spannermigrations "spicedb/internal/datastore/spanner/migrations"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/migrate"
 )
 
 func RegisterMigrateFlags(cmd *cobra.Command) {

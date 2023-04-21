@@ -10,7 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
 )
 
 func getExplanation(ctx context.Context, querier pgxcommon.Querier, sql string, args []any) (string, error) {

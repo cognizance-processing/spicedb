@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 func TestParallelCheckerDirectOverload(t *testing.T) {

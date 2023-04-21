@@ -9,9 +9,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	dsconfig "github.com/authzed/spicedb/pkg/cmd/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
+	testdatastore "spicedb/internal/testserver/datastore"
+	dsconfig "spicedb/pkg/cmd/datastore"
+	"spicedb/pkg/datastore"
 )
 
 // DatastoreConfigInitFunc returns a InitFunc that constructs a ds

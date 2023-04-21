@@ -10,9 +10,9 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	"github.com/authzed/spicedb/pkg/caveats"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/caveats"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // EvaluationErr is an error in evaluation of a caveat expression.

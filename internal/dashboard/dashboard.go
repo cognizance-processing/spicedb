@@ -6,10 +6,10 @@ import (
 	"net/http"
 	"strings"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/schemadsl/generator"
 )
 
 // TODO(jschorr): Replace with a real dashboard
