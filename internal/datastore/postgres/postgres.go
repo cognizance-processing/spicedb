@@ -5,7 +5,6 @@ import (
 	"context"
 	dbsql "database/sql"
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/IBM/pgxpoolprometheus"
 	sq "github.com/Masterminds/squirrel"
@@ -169,12 +168,11 @@ func newPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	var configFileName = flag.String("config-file-name", "config", "specify config file")
-	config2, err := GetConfig(configFileName)
+	var configFileName = "config.toml"
+	config2, err := GetConfig(&configFileName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("getting config from file")
 	}
-	fmt.Println(config2.DatabasePassword, config2.InstanceConnectionName)
 	var (
 		dbUser                 = config2.DatabaseUser           // e.g. 'my-db-user'
 		dbPwd                  = config2.DatabasePassword       // e.g. 'my-db-password'
