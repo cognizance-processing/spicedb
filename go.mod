@@ -4,6 +4,7 @@ go 1.20
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.2.3
+	cloud.google.com/go/secretmanager v1.10.0
 	cloud.google.com/go/spanner v1.45.0
 	github.com/IBM/pgxpoolprometheus v1.1.1
 	github.com/Masterminds/squirrel v1.5.3
@@ -43,7 +44,6 @@ require (
 	github.com/johannesboyne/gofakes3 v0.0.0-20220314170512-33c13122505e
 	github.com/jzelinskie/cobrautil/v2 v2.0.0-20230403163312-3593f31d8fe1
 	github.com/jzelinskie/stringz v0.0.1
-	github.com/lib/pq v1.10.7
 	github.com/mostynb/go-grpc-compression v1.1.17
 	github.com/ngrok/sqlmw v0.0.0-20211220175533-9d16fdc47b31
 	github.com/ory/dockertest/v3 v3.9.1
@@ -61,6 +61,7 @@ require (
 	github.com/shopspring/decimal v1.3.1
 	github.com/spf13/cobra v1.6.1
 	github.com/spf13/pflag v1.0.5
+	github.com/spf13/viper v1.14.0
 	github.com/stretchr/testify v1.8.1
 	go.buf.build/protocolbuffers/go/prometheus/prometheus v1.3.5
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.36.1
@@ -133,6 +134,7 @@ require (
 	github.com/klauspost/compress v1.15.10 // indirect
 	github.com/lann/builder v0.0.0-20180802200727-47ae307949d0 // indirect
 	github.com/lann/ps v0.0.0-20150810152359-62de8c46ede0 // indirect
+	github.com/lib/pq v1.10.7 // indirect
 	github.com/lyft/protoc-gen-star v0.6.1 // indirect
 	github.com/magiconair/properties v1.8.7 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
@@ -156,7 +158,6 @@ require (
 	github.com/spf13/afero v1.9.3 // indirect
 	github.com/spf13/cast v1.5.0 // indirect
 	github.com/spf13/jwalterweatherman v1.1.0 // indirect
-	github.com/spf13/viper v1.14.0 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
 	github.com/subosito/gotenv v1.4.1 // indirect
