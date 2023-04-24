@@ -28,11 +28,11 @@ type Config struct {
 	FontEndUrl string
 
 	// main db
-	DatabaseName                   string
-	DatabaseUser                   string
-	DatabasePassword               string
-	DatabaseInstanceConnectionName string
-	SpiceDBSharedKey               string
+	DatabaseName           string
+	DatabaseUser           string
+	DatabasePassword       string
+	InstanceConnectionName string
+	SpiceDBSharedKey       string
 }
 
 func GetConfig(configFileName *string) (*Config, error) {
@@ -72,14 +72,14 @@ func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
 		log.Fatal().Err(err).Msg("getting config from file")
 	}
 	var (
-		dbUser                 = config2.DatabaseUser                   // e.g. 'my-db-user'
-		dbPwd                  = config2.DatabasePassword               // e.g. 'my-db-password'
-		dbName                 = config2.DatabaseName                   // e.g. 'my-database'
-		instanceConnectionName = config2.DatabaseInstanceConnectionName // e.g. 'project:region:instance'
+		dbUser                 = config2.DatabaseUser           // e.g. 'my-db-user'
+		dbPwd                  = config2.DatabasePassword       // e.g. 'my-db-password'
+		dbName                 = config2.DatabaseName           // e.g. 'my-database'
+		instanceConnectionName = config2.InstanceConnectionName // e.g. 'project:region:instance'
 		//usePrivate             = os.Getenv("PRIVATE_IP")
 	)
 
-	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s sslmode=disable", dbUser, dbPwd, dbName, instanceConnectionName)
+	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s", dbUser, dbPwd, dbName, instanceConnectionName)
 
 	db, err := pgx.Connect(context.Background(), dsn)
 	if err != nil {
