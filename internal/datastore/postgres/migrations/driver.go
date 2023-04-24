@@ -3,7 +3,11 @@ package migrations
 import (
 	"context"
 	"errors"
+	"flag"
 	"fmt"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
+	"os"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -19,14 +23,59 @@ const postgresMissingTableErrorCode = "42P01"
 type AlembicPostgresDriver struct {
 	db *pgx.Conn
 }
+type Config struct {
+	ServerPort string
+	FontEndUrl string
+
+	// main db
+	DatabaseName                   string
+	DatabaseUser                   string
+	DatabasePassword               string
+	DatabaseInstanceConnectionName string
+	SpiceDBSharedKey               string
+}
+
+func GetConfig(configFileName *string) (*Config, error) {
+	// set places to look for config file
+
+	// local
+	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "cog")
+	viper.AddConfigPath(".")
+
+	// cloud run
+	viper.AddConfigPath("../../config")
+	viper.AddConfigPath("../config")
+	viper.AddConfigPath("./config")
+
+	// set the name of the config file
+	viper.SetConfigName(*configFileName)
+	if err := viper.ReadInConfig(); err != nil {
+		log.Error().Err(err).Msgf("could not parse config file")
+		return nil, err
+	}
+
+	// parse the config file
+	cfg := new(Config)
+	if err := viper.Unmarshal(cfg); err != nil {
+		log.Error().Err(err).Msg("unmarshalling config file")
+		return nil, err
+	}
+
+	return cfg, nil
+}
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
+	var configFileName = flag.String("config-file-name", "config", "specify config file")
+	config2, err := GetConfig(configFileName)
+	if err != nil {
+		log.Fatal().Err(err).Msg("getting config from file")
+	}
 	var (
-		dbUser                 = "new"                                                           // e.g. 'my-db-user'
-		dbPwd                  = "Happy456"                                                      // e.g. 'my-db-password'
-		dbName                 = "spicedb"                                                       // e.g. 'my-database'
-		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
+		dbUser                 = config2.DatabaseUser                   // e.g. 'my-db-user'
+		dbPwd                  = config2.DatabasePassword               // e.g. 'my-db-password'
+		dbName                 = config2.DatabaseName                   // e.g. 'my-database'
+		instanceConnectionName = config2.DatabaseInstanceConnectionName // e.g. 'project:region:instance'
 		//usePrivate             = os.Getenv("PRIVATE_IP")
 	)
 

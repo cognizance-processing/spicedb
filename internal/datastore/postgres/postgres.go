@@ -5,6 +5,7 @@ import (
 	"context"
 	dbsql "database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"github.com/IBM/pgxpoolprometheus"
 	sq "github.com/Masterminds/squirrel"
@@ -14,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/ngrok/sqlmw"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 	"net"
@@ -103,6 +105,17 @@ var (
 	tracer = otel.Tracer("spicedb/internal/datastore/postgres")
 )
 
+type Config struct {
+	ServerPort string
+	FontEndUrl string
+
+	// main db
+	DatabaseName                   string
+	DatabaseUser                   string
+	DatabasePassword               string
+	DatabaseInstanceConnectionName string
+	SpiceDBSharedKey               string
+}
 type sqlFilter interface {
 	ToSql() (string, []interface{}, error)
 }
@@ -123,51 +136,49 @@ func NewPostgresDatastore(
 	return proxy.NewSeparatingContextDatastoreProxy(ds), nil
 }
 
-func connectWithConnector() (*pgxpool.Pool, error) {
-	var (
-		dbUser                 = "new"      // e.g. 'my-db-user'
-		dbPwd                  = "Happy456" // e.g. 'my-db-password'
-		dbName                 = "spicedb"  // e.g. 'my-database'
-		instanceConnectionName = "cog-analytics-backend:us-central1:authz-store-clone"
-		usePrivate             = os.Getenv("PRIVATE_IP")
-	)
-	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancelInit()
-	dsn := fmt.Sprintf("user=%s password=%s database=%s", dbUser, dbPwd, dbName)
-	config, err := pgxpool.ParseConfig(dsn)
-	if err != nil {
+func GetConfig(configFileName *string) (*Config, error) {
+	// set places to look for config file
+
+	// local
+	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "cog")
+	viper.AddConfigPath(".")
+
+	// cloud run
+	viper.AddConfigPath("../../config")
+	viper.AddConfigPath("../config")
+	viper.AddConfigPath("./config")
+
+	// set the name of the config file
+	viper.SetConfigName(*configFileName)
+	if err := viper.ReadInConfig(); err != nil {
+		log.Error().Err(err).Msgf("could not parse config file")
 		return nil, err
 	}
-	var opts []cloudsqlconn.Option
-	if usePrivate != "" {
-		opts = append(opts, cloudsqlconn.WithDefaultDialOptions(cloudsqlconn.WithPrivateIP()))
-	}
-	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
-	if err != nil {
+
+	// parse the config file
+	cfg := new(Config)
+	if err := viper.Unmarshal(cfg); err != nil {
+		log.Error().Err(err).Msg("unmarshalling config file")
 		return nil, err
 	}
-	// Use the Cloud SQL connector to handle connecting to the instance.
-	// This approach does *NOT* require the Cloud SQL proxy.
-	config.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, instanceConnectionName)
-	}
-	//dbURI := stdlib.RegisterConnConfig(config.ConnConfig)
-	dbPool, err := pgxpool.NewWithConfig(initializationContext, config)
-	if err != nil {
-		return nil, fmt.Errorf("sql.Open: %v", err)
-	}
-	return dbPool, nil
+
+	return cfg, nil
 }
 
 func newPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
+	var configFileName = flag.String("config-file-name", "config", "specify config file")
+	config2, err := GetConfig(configFileName)
+	if err != nil {
+		log.Fatal().Err(err).Msg("getting config from file")
+	}
 	var (
-		dbUser                 = "new"                                                           // e.g. 'my-db-user'
-		dbPwd                  = "Happy456"                                                      // e.g. 'my-db-password'
-		dbName                 = "spicedb"                                                       // e.g. 'my-database'
-		instanceConnectionName = "/cloudsql/cog-analytics-backend:us-central1:authz-store-clone" // e.g. 'project:region:instance'
+		dbUser                 = config2.DatabaseUser                   // e.g. 'my-db-user'
+		dbPwd                  = config2.DatabasePassword               // e.g. 'my-db-password'
+		dbName                 = config2.DatabaseName                   // e.g. 'my-database'
+		instanceConnectionName = config2.DatabaseInstanceConnectionName // e.g. 'project:region:instance'
 		//usePrivate             = os.Getenv("PRIVATE_IP")
 	)
 
