@@ -4,7 +4,6 @@ go 1.20
 
 require (
 	cloud.google.com/go/cloudsqlconn v1.2.3
-	cloud.google.com/go/secretmanager v1.10.0
 	cloud.google.com/go/spanner v1.45.0
 	github.com/IBM/pgxpoolprometheus v1.1.1
 	github.com/Masterminds/squirrel v1.5.3
