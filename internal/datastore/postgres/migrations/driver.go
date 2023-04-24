@@ -58,7 +58,7 @@ func GetConfig(configFileName *string) (*Config, error) {
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
-	var configFileName = "./config/config.toml"
+	var configFileName = "config.toml"
 	config2, err := GetConfig(&configFileName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("getting config from file")

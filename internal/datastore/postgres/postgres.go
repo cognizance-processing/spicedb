@@ -18,7 +18,6 @@ import (
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 	"net"
-	"os"
 	"time"
 
 	"spicedb/internal/datastore/common"
@@ -136,11 +135,6 @@ func NewPostgresDatastore(
 }
 
 func GetConfig(configFileName *string) (*Config, error) {
-	// set places to look for config file
-
-	// local
-	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "cog")
-	viper.AddConfigPath(".")
 
 	// cloud run
 	viper.AddConfigPath("../../config")
@@ -168,7 +162,7 @@ func newPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	var configFileName = "./config/config.toml"
+	var configFileName = "config.toml"
 	config2, err := GetConfig(&configFileName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("getting config from file")
