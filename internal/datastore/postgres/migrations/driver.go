@@ -4,12 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/viper"
-	"os"
-
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/rs/zerolog/log"
+	"github.com/spf13/viper"
 	"spicedb/pkg/migrate"
 )
 
@@ -36,11 +34,6 @@ type Config struct {
 
 func GetConfig(configFileName *string) (*Config, error) {
 	// set places to look for config file
-
-	// local
-	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "cog")
-	viper.AddConfigPath(".")
-
 	// cloud run
 	viper.AddConfigPath("../../config")
 	viper.AddConfigPath("../config")
@@ -65,7 +58,7 @@ func GetConfig(configFileName *string) (*Config, error) {
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(url string) (*AlembicPostgresDriver, error) {
-	var configFileName = "config.toml"
+	var configFileName = "./config/config.toml"
 	config2, err := GetConfig(&configFileName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("getting config from file")

@@ -168,7 +168,7 @@ func newPostgresDatastore(
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	var configFileName = "config.toml"
+	var configFileName = "./config/config.toml"
 	config2, err := GetConfig(&configFileName)
 	if err != nil {
 		log.Fatal().Err(err).Msg("getting config from file")
