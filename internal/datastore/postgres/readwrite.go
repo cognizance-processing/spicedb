@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/typesystem"
+	"spicedb/pkg/datastore/options"
+	"spicedb/pkg/genutil/mapz"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/typesystem"
 
 	sq "github.com/Masterminds/squirrel"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"

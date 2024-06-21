@@ -14,8 +14,8 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/semaphore"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/genutil"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/genutil"
 )
 
 var (

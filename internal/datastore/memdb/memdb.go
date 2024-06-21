@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/authzed/spicedb/internal/datastore/common"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/internal/datastore/common"
+	"spicedb/pkg/spiceerrors"
 
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"

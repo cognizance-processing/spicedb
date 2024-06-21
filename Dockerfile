@@ -18,4 +18,4 @@ FROM cgr.dev/chainguard/static:latest
 #COPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb
 ENV PATH="$PATH:/usr/local/bin"
 EXPOSE 50051
-ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--dashboard-enabled=false", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.69.246.231:5432/spicedb?sslmode=disable\""]
+ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--dashboard-enabled=false", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://cloudRunUser:<~4%J6}8p7F:F{nS@34.44.110.10:5432/spicedb?sslmode=disable\""]

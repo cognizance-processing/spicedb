@@ -7,17 +7,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/genutil/mapz"
+	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	datastoremw "github.com/authzed/spicedb/internal/middleware/datastore"
-	"github.com/authzed/spicedb/pkg/caveats"
-	"github.com/authzed/spicedb/pkg/datastore"
-	ns "github.com/authzed/spicedb/pkg/namespace"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/memdb"
+	datastoremw "spicedb/internal/middleware/datastore"
+	"spicedb/pkg/caveats"
+	"spicedb/pkg/datastore"
+	ns "spicedb/pkg/namespace"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/tuple"
 )
 
 func TestTypeSystem(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 
 	"github.com/spf13/cobra"
 	"github.com/stretchr/testify/require"

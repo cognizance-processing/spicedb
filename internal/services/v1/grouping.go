@@ -5,9 +5,9 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	"github.com/authzed/spicedb/internal/graph/computed"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/graph/computed"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 var MaxBulkCheckDispatchChunkSize = datastore.FilterMaximumIDCount

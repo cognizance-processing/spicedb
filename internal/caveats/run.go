@@ -9,12 +9,12 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/authzed/spicedb/pkg/caveats"
-	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/caveats"
+	caveattypes "spicedb/pkg/caveats/types"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // RunCaveatExpressionDebugOption are the options for running caveat expression evaluation

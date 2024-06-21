@@ -13,10 +13,10 @@ import (
 	promclient "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/dispatch/keys"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/dispatch/keys"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 const defaultBloomFilterSize = 50

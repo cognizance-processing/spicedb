@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	developerv1 "github.com/authzed/spicedb/pkg/proto/developer/v1"
+	developerv1 "spicedb/pkg/proto/developer/v1"
 )
 
 func TestWarnings(t *testing.T) {

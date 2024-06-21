@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/pkg/datastore/options"
+	"spicedb/pkg/tuple"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/stretchr/testify/require"

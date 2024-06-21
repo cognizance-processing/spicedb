@@ -7,7 +7,7 @@
 
 All communication in these forums abides by our [Code of Conduct].
 
-[GitHub Issues]: https://github.com/authzed/spicedb/issues
+[GitHub Issues]: https://spicedb/issues
 [Code of Conduct]: CODE-OF-CONDUCT.md
 [Github Discussions]: https://github.com/orgs/authzed/discussions/new?category=q-a
 [Discord]: https://authzed.com/discord
@@ -42,12 +42,12 @@ Maintainers might ask for further information to resolve an issue.
 You can find issues by priority: [Urgent], [High], [Medium], [Low], [Maybe].
 There are also [good first issues].
 
-[Urgent]: https://github.com/authzed/spicedb/labels/priority%2F0%20urgent
-[High]: https://github.com/authzed/spicedb/labels/priority%2F1%20high
-[Medium]: https://github.com/authzed/spicedb/labels/priority%2F2%20medium
-[Low]: https://github.com/authzed/spicedb/labels/priority%2F3%20low
-[Maybe]: https://github.com/authzed/spicedb/labels/priority%2F4%20maybe
-[good first issues]: https://github.com/authzed/spicedb/labels/hint%2Fgood%20first%20issue
+[Urgent]: https://spicedb/labels/priority%2F0%20urgent
+[High]: https://spicedb/labels/priority%2F1%20high
+[Medium]: https://spicedb/labels/priority%2F2%20medium
+[Low]: https://spicedb/labels/priority%2F3%20low
+[Maybe]: https://spicedb/labels/priority%2F4%20maybe
+[good first issues]: https://spicedb/labels/hint%2Fgood%20first%20issue
 
 ## Contribution flow
 

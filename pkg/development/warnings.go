@@ -3,11 +3,11 @@ package development
 import (
 	"context"
 
-	"github.com/authzed/spicedb/pkg/namespace"
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
-	devinterface "github.com/authzed/spicedb/pkg/proto/developer/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
-	"github.com/authzed/spicedb/pkg/typesystem"
+	"spicedb/pkg/namespace"
+	corev1 "spicedb/pkg/proto/core/v1"
+	devinterface "spicedb/pkg/proto/developer/v1"
+	"spicedb/pkg/spiceerrors"
+	"spicedb/pkg/typesystem"
 )
 
 var allChecks = checkers{

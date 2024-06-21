@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
-	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	corev1 "spicedb/pkg/proto/core/v1"
+	dispatchv1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 func TestParseDispatchExpression(t *testing.T) {

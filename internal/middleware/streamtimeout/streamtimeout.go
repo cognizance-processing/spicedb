@@ -9,7 +9,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 // MustStreamServerInterceptor returns a new stream server interceptor that cancels the context

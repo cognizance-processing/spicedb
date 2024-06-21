@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/pkg/cmd/datastore"
-	"github.com/authzed/spicedb/pkg/cmd/util"
+	"spicedb/pkg/cmd/datastore"
+	"spicedb/pkg/cmd/util"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/stretchr/testify/require"

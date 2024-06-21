@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 func TestONRSet(t *testing.T) {

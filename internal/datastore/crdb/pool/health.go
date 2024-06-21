@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"golang.org/x/time/rate"
 
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
-	log "github.com/authzed/spicedb/internal/logging"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
+	log "spicedb/internal/logging"
 )
 
 const errorBurst = 2

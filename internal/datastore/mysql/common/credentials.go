@@ -5,8 +5,8 @@ import (
 
 	"github.com/go-sql-driver/mysql"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/datastore"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
 )
 
 // MaybeAddCredentialsProviderHook adds a hook that retrieves the configuration from the CredentialsProvider if the given credentialsProvider is not nil

@@ -1,9 +1,9 @@
 <h1 align="center">
     <a href="https://authzed.com#gh-dark-mode-only" target="_blank">
-        <img width="300" src="https://github.com/authzed/spicedb/assets/343539/82234426-468b-4297-8b5c-f06a44fe2278" alt="spicedb logo">
+        <img width="300" src="https://spicedb/assets/343539/82234426-468b-4297-8b5c-f06a44fe2278" alt="spicedb logo">
     </a>
     <a href="https://authzed.com#gh-light-mode-only" target="_blank">
-        <img width="300" src="https://github.com/authzed/spicedb/assets/343539/312ff046-7076-4c30-afd4-2e3d86c06f51" alt="spicedb Logo">
+        <img width="300" src="https://spicedb/assets/343539/312ff046-7076-4c30-afd4-2e3d86c06f51" alt="spicedb Logo">
     </a>
 </h1>
 
@@ -14,7 +14,7 @@
 </h3>
 
 <p align="center">
-  <a href="https://github.com/authzed/spicedb/releases"><img alt="release badge" src="https://img.shields.io/github/v/release/authzed/spicedb?color=%236EC93F&label=latest%20release&sort=semver&style=flat-square"></a>
+  <a href="https://spicedb/releases"><img alt="release badge" src="https://img.shields.io/github/v/release/authzed/spicedb?color=%236EC93F&label=latest%20release&sort=semver&style=flat-square"></a>
   &nbsp;
   <a href="https://hub.docker.com/repository/docker/authzed/spicedb" target="_blank"><img alt="docker pulls badge" src="https://img.shields.io/docker/pulls/authzed/spicedb?color=%23448CE6&style=flat-square"></a>
   &nbsp;
@@ -90,12 +90,12 @@ There are also [good first issues].
 Our [documentation website] is also open source if you'd like to clarify anything you find confusing.
 
 [CONTRIBUTING.md]: CONTRIBUTING.md
-[Urgent]: https://github.com/authzed/spicedb/labels/priority%2F0%20urgent
-[High]: https://github.com/authzed/spicedb/labels/priority%2F1%20high
-[Medium]: https://github.com/authzed/spicedb/labels/priority%2F2%20medium
-[Low]: https://github.com/authzed/spicedb/labels/priority%2F3%20low
-[Maybe]: https://github.com/authzed/spicedb/labels/priority%2F4%20maybe
-[good first issues]: https://github.com/authzed/spicedb/labels/hint%2Fgood%20first%20issue
+[Urgent]: https://spicedb/labels/priority%2F0%20urgent
+[High]: https://spicedb/labels/priority%2F1%20high
+[Medium]: https://spicedb/labels/priority%2F2%20medium
+[Low]: https://spicedb/labels/priority%2F3%20low
+[Maybe]: https://spicedb/labels/priority%2F4%20maybe
+[good first issues]: https://spicedb/labels/hint%2Fgood%20first%20issue
 [documentation website]: https://github.com/authzed/docs
 
 ## Getting Started
@@ -177,7 +177,7 @@ kubectl apply -f https://raw.githubusercontent.com/authzed/examples/main/kuberne
 ```
 
 [examples]: https://github.com/authzed/examples
-[SpiceDB Operator]: https://github.com/authzed/spicedb-operator
+[SpiceDB Operator]: https://spicedb-operator
 [testing SpiceDB on Kubernetes]: https://github.com/authzed/examples/tree/main/kubernetes
 
 ### Developing your own schema
@@ -189,7 +189,7 @@ If you don't want to start with the examples loadable from the Playground, you c
 
 Watch the SpiceDB primer video to get started with schema development:
 
-<a href="https://www.youtube.com/watch?v=AoK0LrkGFDY" target="_blank"><img width="600" alt="SpiceDB Primer YouTube Thumbnail" src="https://github.com/authzed/spicedb/assets/343539/7784dfa2-b330-4c5e-b32a-090759e48392"></a>
+<a href="https://www.youtube.com/watch?v=AoK0LrkGFDY" target="_blank"><img width="600" alt="SpiceDB Primer YouTube Thumbnail" src="https://spicedb/assets/343539/7784dfa2-b330-4c5e-b32a-090759e48392"></a>
 
 [hosted Playground]: https://play.authzed.com
 [Playground app is open source]: https://github.com/authzed/playground
@@ -221,6 +221,6 @@ We appreciate all contributions, large and small, and would like to thank all th
 
 In addition, we'd like to highlight a few notable contributions:
 
-- <img alt="github logo" height="15px" src="https://github.com/authzed/spicedb/assets/343539/c05b8aef-c862-4499-bebf-0a43f3b423c4"> The GitHub Authorization Team for implementing and contributing the MySQL datastore
-- <img alt="netflix logo" height="15px" src="https://github.com/authzed/spicedb/assets/343539/e64128f0-978f-4fd6-bdd7-1ce7cb6b34b9"> The Netflix Authorization Team for sponsoring and being a design partner for caveats
-- <img alt="equinix logo" height="15px" src="https://github.com/authzed/spicedb/assets/343539/7bf706f9-910d-4902-8957-c914a7468eff"> The Equinix Metal Team for sponsoring our benchmarking hardware
+- <img alt="github logo" height="15px" src="https://spicedb/assets/343539/c05b8aef-c862-4499-bebf-0a43f3b423c4"> The GitHub Authorization Team for implementing and contributing the MySQL datastore
+- <img alt="netflix logo" height="15px" src="https://spicedb/assets/343539/e64128f0-978f-4fd6-bdd7-1ce7cb6b34b9"> The Netflix Authorization Team for sponsoring and being a design partner for caveats
+- <img alt="equinix logo" height="15px" src="https://spicedb/assets/343539/7bf706f9-910d-4902-8957-c914a7468eff"> The Equinix Metal Team for sponsoring our benchmarking hardware

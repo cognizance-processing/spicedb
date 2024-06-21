@@ -63,7 +63,7 @@ const (
 	errUnableToUpdateCounter   = "unable to update counter: %w"
 
 	// See https://cloud.google.com/spanner/docs/change-streams#data-retention
-	// See https://github.com/authzed/spicedb/issues/1457
+	// See https://spicedb/issues/1457
 	defaultChangeStreamRetention = 24 * time.Hour
 )
 

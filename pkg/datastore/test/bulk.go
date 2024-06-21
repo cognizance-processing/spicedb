@@ -11,10 +11,10 @@ import (
 
 	"github.com/authzed/grpcutil"
 
-	"github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/internal/testfixtures"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 func BulkUploadTest(t *testing.T, tester DatastoreTester) {

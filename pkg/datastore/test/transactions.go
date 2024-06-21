@@ -8,8 +8,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
 )
 
 func RetryTest(t *testing.T, tester DatastoreTester) {

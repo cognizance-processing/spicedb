@@ -3,7 +3,7 @@ package impl.v1;
 
 import "google/api/expr/v1alpha1/checked.proto";
 
-option go_package = "github.com/authzed/spicedb/pkg/proto/impl/v1";
+option go_package = "spicedb/pkg/proto/impl/v1";
 
 message DecodedCaveat {
   // we do kind_oneof in case we decide to have non-CEL expressions

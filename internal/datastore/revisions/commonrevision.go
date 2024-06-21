@@ -1,8 +1,8 @@
 package revisions
 
 import (
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/spiceerrors"
 )
 
 // RevisionKind is an enum of the different kinds of revisions that can be used.

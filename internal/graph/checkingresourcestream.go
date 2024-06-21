@@ -9,12 +9,12 @@ import (
 	"go.uber.org/atomic"
 	"golang.org/x/exp/maps"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/graph/computed"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/graph/computed"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // possibleResource is a resource that was returned by reachable resources and, after processing,

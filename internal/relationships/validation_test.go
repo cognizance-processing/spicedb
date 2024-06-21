@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/testfixtures"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/testfixtures"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/tuple"
 )
 
 const basicSchema = `definition user {}

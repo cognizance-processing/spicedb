@@ -1,11 +1,11 @@
 package diff
 
 import (
-	"github.com/authzed/spicedb/pkg/diff/caveats"
-	"github.com/authzed/spicedb/pkg/diff/namespace"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/diff/caveats"
+	"spicedb/pkg/diff/namespace"
+	"spicedb/pkg/genutil/mapz"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
 )
 
 // DiffableSchema is a schema that can be diffed.

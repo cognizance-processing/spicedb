@@ -15,7 +15,7 @@ import (
 	"spicedb/pkg/datastore"
 	"spicedb/pkg/namespace"
 
-	"github.com/authzed/spicedb/internal/datastore/crdb/pool"
+	"spicedb/internal/datastore/crdb/pool"
 )
 
 const (

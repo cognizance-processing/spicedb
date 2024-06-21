@@ -6,8 +6,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/datastore/revisions"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/revisions"
+	"spicedb/pkg/datastore"
 )
 
 func rev(value string) datastore.Revision {

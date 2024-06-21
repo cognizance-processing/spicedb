@@ -13,7 +13,7 @@ import (
 	"github.com/sourcegraph/jsonrpc2"
 	"golang.org/x/sync/errgroup"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 )
 
 type serverState int

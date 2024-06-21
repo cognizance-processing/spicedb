@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
-	"github.com/authzed/spicedb/pkg/cache"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/cache"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
+	corev1 "spicedb/pkg/proto/core/v1"
 )
 
 var goleakIgnores = []goleak.Option{

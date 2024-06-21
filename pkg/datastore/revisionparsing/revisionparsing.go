@@ -1,13 +1,13 @@
 package revisionparsing
 
 import (
-	"github.com/authzed/spicedb/internal/datastore/crdb"
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/datastore/mysql"
-	"github.com/authzed/spicedb/internal/datastore/postgres"
-	"github.com/authzed/spicedb/internal/datastore/revisions"
-	"github.com/authzed/spicedb/internal/datastore/spanner"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/crdb"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/datastore/mysql"
+	"spicedb/internal/datastore/postgres"
+	"spicedb/internal/datastore/revisions"
+	"spicedb/internal/datastore/spanner"
+	"spicedb/pkg/datastore"
 )
 
 // ParsingFunc is a function that can parse a string into a revision.

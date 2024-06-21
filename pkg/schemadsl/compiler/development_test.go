@@ -5,8 +5,8 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/schemadsl/dslshape"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/schemadsl/dslshape"
+	"spicedb/pkg/schemadsl/input"
 )
 
 func TestPositionToAstNode(t *testing.T) {

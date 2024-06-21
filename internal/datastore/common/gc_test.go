@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/internal/datastore/revisions"
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/internal/datastore/revisions"
+	"spicedb/pkg/datastore"
 
 	"github.com/prometheus/client_golang/prometheus"
 	promclient "github.com/prometheus/client_model/go"

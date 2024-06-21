@@ -5,8 +5,8 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	servicesv1 "github.com/authzed/spicedb/internal/services/v1"
-	"github.com/authzed/spicedb/pkg/datastore"
+	servicesv1 "spicedb/internal/services/v1"
+	"spicedb/pkg/datastore"
 )
 
 // BulkExport implements the BulkExportRelationships API functionality. Given a datastore.Datastore, it will

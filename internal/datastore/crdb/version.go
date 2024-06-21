@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/rs/zerolog"
 
-	pgxcommon "github.com/authzed/spicedb/internal/datastore/postgres/common"
+	pgxcommon "spicedb/internal/datastore/postgres/common"
 )
 
 const (

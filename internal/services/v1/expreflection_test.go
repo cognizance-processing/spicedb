@@ -9,12 +9,12 @@ import (
 	"github.com/ettle/strcase"
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/pkg/datastore/revisionparsing"
-	"github.com/authzed/spicedb/pkg/diff"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/testutil"
+	"spicedb/pkg/datastore/revisionparsing"
+	"spicedb/pkg/diff"
+	"spicedb/pkg/genutil/mapz"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/testutil"
 )
 
 func TestConvertDiff(t *testing.T) {

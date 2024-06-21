@@ -17,7 +17,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/test/bufconn"
 
-	"github.com/authzed/spicedb/internal/grpchelpers"
+	"spicedb/internal/grpchelpers"
 )
 
 func TestOverlapKeyAddition(t *testing.T) {

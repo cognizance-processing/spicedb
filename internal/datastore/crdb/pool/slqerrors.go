@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 const (

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/authzed/spicedb/internal/graph"
+	"spicedb/internal/graph"
 
 	"github.com/authzed/grpcutil"
 	"github.com/stretchr/testify/require"

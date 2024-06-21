@@ -6,7 +6,7 @@ import (
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 // ErrSerializationMaxRetriesReached occurs when a write request has reached its maximum number

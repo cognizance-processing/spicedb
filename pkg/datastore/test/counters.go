@@ -6,10 +6,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/testfixtures"
+	"spicedb/internal/testfixtures"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 func RelationshipCountersTest(t *testing.T, tester DatastoreTester) {

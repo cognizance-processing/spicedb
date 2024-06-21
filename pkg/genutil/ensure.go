@@ -1,6 +1,6 @@
 package genutil
 
-import "github.com/authzed/spicedb/pkg/spiceerrors"
+import "spicedb/pkg/spiceerrors"
 
 // MustEnsureUInt32 is a helper function that calls EnsureUInt32 and panics on error.
 func MustEnsureUInt32(value int) uint32 {

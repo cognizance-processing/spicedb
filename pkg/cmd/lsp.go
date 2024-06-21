@@ -10,10 +10,10 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
-	"github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/internal/lsp"
-	"github.com/authzed/spicedb/pkg/cmd/termination"
-	"github.com/authzed/spicedb/pkg/releases"
+	"spicedb/internal/logging"
+	"spicedb/internal/lsp"
+	"spicedb/pkg/cmd/termination"
+	"spicedb/pkg/releases"
 )
 
 // LSPConfig is the configuration for the LSP command.

@@ -3,7 +3,7 @@ package datastore
 import (
 	"context"
 
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	core "spicedb/pkg/proto/core/v1"
 )
 
 // RelationshipCounter is a struct that represents a count of relationships that match a filter.

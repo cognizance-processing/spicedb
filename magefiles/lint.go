@@ -81,18 +81,18 @@ func (Lint) Analyzers() error {
 	fmt.Println("running analyzers")
 	return RunSh("go", WithDir("tools/analyzers"), WithV())("run", "./cmd/analyzers/main.go",
 		"-nilvaluecheck",
-		"-nilvaluecheck.skip-pkg=github.com/authzed/spicedb/pkg/proto/dispatch/v1",
-		"-nilvaluecheck.disallowed-nil-return-type-paths=*github.com/authzed/spicedb/pkg/proto/dispatch/v1.DispatchCheckResponse,*github.com/authzed/spicedb/pkg/proto/dispatch/v1.DispatchExpandResponse,*github.com/authzed/spicedb/pkg/proto/dispatch/v1.DispatchLookupResponse",
+		"-nilvaluecheck.skip-pkg=spicedb/pkg/proto/dispatch/v1",
+		"-nilvaluecheck.disallowed-nil-return-type-paths=*spicedb/pkg/proto/dispatch/v1.DispatchCheckResponse,*spicedb/pkg/proto/dispatch/v1.DispatchExpandResponse,*spicedb/pkg/proto/dispatch/v1.DispatchLookupResponse",
 		"-exprstatementcheck",
 		"-exprstatementcheck.disallowed-expr-statement-types=*github.com/rs/zerolog.Event:MarshalZerologObject:missing Send or Msg on zerolog log Event",
 		"-closeafterusagecheck",
-		"-closeafterusagecheck.must-be-closed-after-usage-types=github.com/authzed/spicedb/pkg/datastore.RelationshipIterator",
-		"-closeafterusagecheck.skip-pkg=github.com/authzed/spicedb/pkg/datastore,github.com/authzed/spicedb/internal/datastore,github.com/authzed/spicedb/internal/testfixtures",
+		"-closeafterusagecheck.must-be-closed-after-usage-types=spicedb/pkg/datastore.RelationshipIterator",
+		"-closeafterusagecheck.skip-pkg=spicedb/pkg/datastore,spicedb/internal/datastore,spicedb/internal/testfixtures",
 		"-paniccheck",
 		"-paniccheck.skip-files=_test,zz_",
 		"-zerologmarshalcheck",
 		"-zerologmarshalcheck.skip-files=_test,zz_",
-		"github.com/authzed/spicedb/...",
+		"spicedb/...",
 	)
 }
 

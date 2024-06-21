@@ -9,8 +9,8 @@ import (
 
 	"github.com/shopspring/decimal"
 
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/spiceerrors"
 )
 
 var zeroHLC = HLCRevision{}

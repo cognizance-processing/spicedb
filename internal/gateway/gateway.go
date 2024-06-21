@@ -24,7 +24,7 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/authzed/spicedb/internal/grpchelpers"
+	"spicedb/internal/grpchelpers"
 )
 
 var histogram = promauto.NewHistogramVec(prometheus.HistogramOpts{

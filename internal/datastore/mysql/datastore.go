@@ -10,7 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	mysqlCommon "github.com/authzed/spicedb/internal/datastore/mysql/common"
+	mysqlCommon "spicedb/internal/datastore/mysql/common"
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/dlmiddlecote/sqlstats"

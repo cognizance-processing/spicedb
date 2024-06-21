@@ -11,10 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 
-	"github.com/authzed/spicedb/internal/graph/computed"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/testutil"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/graph/computed"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/testutil"
+	"spicedb/pkg/tuple"
 )
 
 type expectedGroupedRequest struct {

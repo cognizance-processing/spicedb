@@ -18,12 +18,12 @@ import (
 
 	_ "google.golang.org/grpc/xds"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cmd"
-	cmdutil "github.com/authzed/spicedb/pkg/cmd/server"
-	"github.com/authzed/spicedb/pkg/cmd/testserver"
-	_ "github.com/authzed/spicedb/pkg/runtime"
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/cmd"
+	cmdutil "spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/testserver"
+	_ "spicedb/pkg/runtime"
+	"spicedb/pkg/spiceerrors"
 )
 
 var errParsing = errors.New("parsing error")

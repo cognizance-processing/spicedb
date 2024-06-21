@@ -11,7 +11,7 @@ import (
 	rdsauth "github.com/aws/aws-sdk-go-v2/feature/rds/auth"
 	"golang.org/x/exp/maps"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 )
 
 // CredentialsProvider allows datastore credentials to be retrieved dynamically

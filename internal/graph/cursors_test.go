@@ -7,10 +7,10 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/pkg/datastore/options"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/dispatch"
+	"spicedb/pkg/datastore/options"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 func TestCursorProduction(t *testing.T) {

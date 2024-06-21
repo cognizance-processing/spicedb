@@ -5,11 +5,11 @@ import (
 	"math"
 	"testing"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/graph"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/graph"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 
 	"github.com/stretchr/testify/require"
 )

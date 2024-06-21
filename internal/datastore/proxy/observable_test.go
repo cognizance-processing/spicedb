@@ -4,9 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/datastore/test"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/test"
 )
 
 type observableTest struct{}

@@ -9,8 +9,8 @@ import (
 	"github.com/authzed/cel-go/common/types/ref"
 	"google.golang.org/protobuf/proto"
 
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
-	dispatchv1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	corev1 "spicedb/pkg/proto/core/v1"
+	dispatchv1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 // DispatchExpr is a CEL expression that can be run to determine the secondary dispatchers, if any,

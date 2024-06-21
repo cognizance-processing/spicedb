@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/pkg/datastore"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/dispatch"
+	"spicedb/pkg/datastore"
+	core "spicedb/pkg/proto/core/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
 )
 
 // NewCursoredLookupResources creates and instance of CursoredLookupResources.

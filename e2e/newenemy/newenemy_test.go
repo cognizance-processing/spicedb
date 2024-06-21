@@ -22,8 +22,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"
 
-	"github.com/authzed/spicedb/internal/datastore/revisions"
-	"github.com/authzed/spicedb/pkg/zedtoken"
+	"spicedb/internal/datastore/revisions"
+	"spicedb/pkg/zedtoken"
 
 	"spicedb/e2e"
 	"spicedb/e2e/cockroach"

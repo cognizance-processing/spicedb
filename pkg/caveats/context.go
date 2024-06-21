@@ -6,7 +6,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/authzed/spicedb/pkg/caveats/types"
+	"spicedb/pkg/caveats/types"
 )
 
 // ConvertContextToStruct converts the given context values into a context struct.

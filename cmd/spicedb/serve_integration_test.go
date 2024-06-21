@@ -22,8 +22,8 @@ import (
 	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/status"
 
-	testdatastore "github.com/authzed/spicedb/internal/testserver/datastore"
-	"github.com/authzed/spicedb/pkg/datastore"
+	testdatastore "spicedb/internal/testserver/datastore"
+	"spicedb/pkg/datastore"
 )
 
 func TestServe(t *testing.T) {

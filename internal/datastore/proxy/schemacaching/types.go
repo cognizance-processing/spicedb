@@ -1,6 +1,6 @@
 package schemacaching
 
-import "github.com/authzed/spicedb/pkg/schemadsl/compiler"
+import "spicedb/pkg/schemadsl/compiler"
 
 // *DefinitionSizeVTMultiplier are the mulitipliers to be used for
 // estimating the in-memory cost of a SchemaDefinition based on its

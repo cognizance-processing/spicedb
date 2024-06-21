@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
 )
 
 // TimestampRevision is a revision that is a timestamp.

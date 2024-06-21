@@ -1,7 +1,7 @@
 package slicez
 
 import (
-	"github.com/authzed/spicedb/internal/logging"
+	"spicedb/internal/logging"
 )
 
 // ForEachChunk executes the given handler for each chunk of items in the slice.

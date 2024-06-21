@@ -21,16 +21,16 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/authzed/spicedb/internal/datastore/memdb"
-	"github.com/authzed/spicedb/internal/namespace"
-	"github.com/authzed/spicedb/internal/services/shared"
-	tf "github.com/authzed/spicedb/internal/testfixtures"
-	"github.com/authzed/spicedb/internal/testserver"
-	"github.com/authzed/spicedb/pkg/datastore"
-	"github.com/authzed/spicedb/pkg/genutil/mapz"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/testutil"
-	"github.com/authzed/spicedb/pkg/tuple"
+	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/namespace"
+	"spicedb/internal/services/shared"
+	tf "spicedb/internal/testfixtures"
+	"spicedb/internal/testserver"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/testutil"
+	"spicedb/pkg/tuple"
 )
 
 func TestBulkImportRelationships(t *testing.T) {

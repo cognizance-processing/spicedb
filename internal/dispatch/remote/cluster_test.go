@@ -9,7 +9,8 @@ import (
 
 	"spicedb/internal/dispatch"
 
-	corev1 "github.com/authzed/spicedb/pkg/proto/core/v1"
+	corev1 "spicedb/pkg/proto/core/v1"
+
 	humanize "github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"

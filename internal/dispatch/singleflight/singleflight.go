@@ -12,11 +12,11 @@ import (
 	"google.golang.org/grpc/status"
 	"resenje.org/singleflight"
 
-	log "github.com/authzed/spicedb/internal/logging"
+	log "spicedb/internal/logging"
 
-	"github.com/authzed/spicedb/internal/dispatch"
-	"github.com/authzed/spicedb/internal/dispatch/keys"
-	v1 "github.com/authzed/spicedb/pkg/proto/dispatch/v1"
+	"spicedb/internal/dispatch"
+	"spicedb/internal/dispatch/keys"
+	v1 "spicedb/pkg/proto/dispatch/v1"
 )
 
 var (

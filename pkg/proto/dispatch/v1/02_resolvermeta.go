@@ -3,7 +3,7 @@ package dispatchv1
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 
 	"github.com/bits-and-blooms/bloom/v3"
 	"google.golang.org/grpc/codes"

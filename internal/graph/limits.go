@@ -3,7 +3,7 @@ package graph
 import (
 	"fmt"
 
-	"github.com/authzed/spicedb/pkg/spiceerrors"
+	"spicedb/pkg/spiceerrors"
 )
 
 var ErrLimitReached = fmt.Errorf("limit has been reached")

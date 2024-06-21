@@ -6,7 +6,7 @@ package postgres
 import (
 	"testing"
 
-	pgversion "github.com/authzed/spicedb/internal/datastore/postgres/version"
+	pgversion "spicedb/internal/datastore/postgres/version"
 
 	"github.com/samber/lo"
 )

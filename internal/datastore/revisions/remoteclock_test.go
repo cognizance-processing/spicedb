@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/authzed/spicedb/pkg/datastore"
+	"spicedb/pkg/datastore"
+
 	"github.com/benbjohnson/clock"
 	"github.com/stretchr/testify/require"
 

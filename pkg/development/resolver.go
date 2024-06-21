@@ -4,14 +4,14 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/authzed/spicedb/pkg/caveats"
-	"github.com/authzed/spicedb/pkg/namespace"
-	core "github.com/authzed/spicedb/pkg/proto/core/v1"
-	"github.com/authzed/spicedb/pkg/schemadsl/compiler"
-	"github.com/authzed/spicedb/pkg/schemadsl/dslshape"
-	"github.com/authzed/spicedb/pkg/schemadsl/generator"
-	"github.com/authzed/spicedb/pkg/schemadsl/input"
-	"github.com/authzed/spicedb/pkg/typesystem"
+	"spicedb/pkg/caveats"
+	"spicedb/pkg/namespace"
+	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/schemadsl/compiler"
+	"spicedb/pkg/schemadsl/dslshape"
+	"spicedb/pkg/schemadsl/generator"
+	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/typesystem"
 )
 
 // ReferenceType is the type of reference.

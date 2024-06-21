@@ -7,9 +7,9 @@ import (
 	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/require"
 
-	log "github.com/authzed/spicedb/internal/logging"
-	"github.com/authzed/spicedb/pkg/cache"
-	"github.com/authzed/spicedb/pkg/datastore"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/cache"
+	"spicedb/pkg/datastore"
 )
 
 // CachingMode is the caching mode to use for schema.
