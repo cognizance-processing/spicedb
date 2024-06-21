@@ -27,10 +27,9 @@ RUN set -x && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -
 # Copy the binary to the production image from the builder stage.
 COPY --from=builder /app/ /app/
 
-
 # Run the web service on container startup.
 # migrate up --database-engine postgres --database-uri postgres://postgres:postgres@%s/cog-analytics-backend:us-central1:permify/postgres
 # or RUN apt install tini
 # COPY --from=ghcr.io/grpc-ecosystem/grpc-health-probe:v0.4.12 /ko-app/grpc-health-probe /usr/local/bin/grpc_health_probe
 # COPY --from=spicedb-builder /go/src/app/spicedb /usr/local/bin/spicedb
-ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--dashboard-enabled=false", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://$DatabaseUser:$DatabasePassword@34.44.110.10:5432/spicedb?sslmode=disable\""]
+ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--dashboard-enabled=false", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.69.246.231:5432/spicedb?sslmode=disable\""]
