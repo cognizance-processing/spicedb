@@ -1,11 +1,15 @@
 package postgres
 
 import (
-	"cloud.google.com/go/cloudsqlconn"
 	"context"
 	dbsql "database/sql"
 	"errors"
 	"fmt"
+	"net"
+	"os"
+	"time"
+
+	"cloud.google.com/go/cloudsqlconn"
 	"github.com/IBM/pgxpoolprometheus"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
@@ -17,9 +21,6 @@ import (
 	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
-	"net"
-	"os"
-	"time"
 
 	"spicedb/internal/datastore/common"
 	"spicedb/internal/datastore/common/revisions"
@@ -216,10 +217,10 @@ func newPostgresDatastore(
 		return nil
 	}
 	readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-clone")
+		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
 	}
 	writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-clone")
+		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
 	}
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
