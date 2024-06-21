@@ -7,8 +7,10 @@ import (
 	"spicedb/internal/dispatch"
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/slicez"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/spiceerrors"
 )
 
 // DebugOption defines the various debug level options for Checks.
@@ -80,8 +82,14 @@ func computeCheck(ctx context.Context,
 	debugging := v1.DispatchCheckRequest_NO_DEBUG
 	if params.DebugOption == BasicDebuggingEnabled {
 		debugging = v1.DispatchCheckRequest_ENABLE_BASIC_DEBUGGING
+		if len(resourceIDs) > 1 {
+			return nil, nil, spiceerrors.MustBugf("debugging can only be enabled for a single resource ID")
+		}
 	} else if params.DebugOption == TraceDebuggingEnabled {
 		debugging = v1.DispatchCheckRequest_ENABLE_TRACE_DEBUGGING
+		if len(resourceIDs) > 1 {
+			return nil, nil, spiceerrors.MustBugf("debugging can only be enabled for a single resource ID")
+		}
 	}
 
 	setting := v1.DispatchCheckRequest_REQUIRE_ALL_RESULTS
@@ -89,30 +97,55 @@ func computeCheck(ctx context.Context,
 		setting = v1.DispatchCheckRequest_ALLOW_SINGLE_RESULT
 	}
 
-	checkResult, err := d.DispatchCheck(ctx, &v1.DispatchCheckRequest{
-		ResourceRelation: params.ResourceType,
-		ResourceIds:      resourceIDs,
-		ResultsSetting:   setting,
-		Subject:          params.Subject,
-		Metadata: &v1.ResolverMeta{
-			AtRevision:     params.AtRevision.String(),
-			DepthRemaining: params.MaximumDepth,
-		},
-		Debug: debugging,
-	})
+	// Ensure that the number of resources IDs given to each dispatch call is not in excess of the maximum.
+	results := make(map[string]*v1.ResourceCheckResult, len(resourceIDs))
+	metadata := &v1.ResponseMeta{}
+
+	bf, err := v1.NewTraversalBloomFilter(uint(params.MaximumDepth))
 	if err != nil {
-		return nil, checkResult.Metadata, err
+		return nil, nil, spiceerrors.MustBugf("failed to create new traversal bloom filter")
 	}
 
-	results := make(map[string]*v1.ResourceCheckResult, len(resourceIDs))
-	for _, resourceID := range resourceIDs {
-		computed, err := computeCaveatedCheckResult(ctx, params, resourceID, checkResult)
-		if err != nil {
-			return nil, checkResult.Metadata, err
+	// TODO(jschorr): Should we make this run in parallel via the preloadedTaskRunner?
+	_, err = slicez.ForEachChunkUntil(resourceIDs, datastore.FilterMaximumIDCount, func(resourceIDsToCheck []string) (bool, error) {
+		checkResult, err := d.DispatchCheck(ctx, &v1.DispatchCheckRequest{
+			ResourceRelation: params.ResourceType,
+			ResourceIds:      resourceIDsToCheck,
+			ResultsSetting:   setting,
+			Subject:          params.Subject,
+			Metadata: &v1.ResolverMeta{
+				AtRevision:     params.AtRevision.String(),
+				DepthRemaining: params.MaximumDepth,
+				TraversalBloom: bf,
+			},
+			Debug: debugging,
+		})
+
+		if len(resourceIDs) == 1 {
+			metadata = checkResult.Metadata
+		} else {
+			metadata = &v1.ResponseMeta{
+				DispatchCount:       metadata.DispatchCount + checkResult.Metadata.DispatchCount,
+				DepthRequired:       max(metadata.DepthRequired, checkResult.Metadata.DepthRequired),
+				CachedDispatchCount: metadata.CachedDispatchCount + checkResult.Metadata.CachedDispatchCount,
+			}
 		}
-		results[resourceID] = computed
-	}
-	return results, checkResult.Metadata, nil
+
+		if err != nil {
+			return false, err
+		}
+
+		for _, resourceID := range resourceIDsToCheck {
+			computed, err := computeCaveatedCheckResult(ctx, params, resourceID, checkResult)
+			if err != nil {
+				return false, err
+			}
+			results[resourceID] = computed
+		}
+
+		return true, nil
+	})
+	return results, metadata, err
 }
 
 func computeCaveatedCheckResult(ctx context.Context, params CheckParameters, resourceID string, checkResult *v1.DispatchCheckResponse) (*v1.ResourceCheckResult, error) {

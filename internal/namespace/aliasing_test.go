@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/typesystem"
 
 	"spicedb/internal/datastore/memdb"
 	ns "spicedb/pkg/namespace"
@@ -200,7 +201,7 @@ func TestAliasing(t *testing.T) {
 			lastRevision, err := ds.HeadRevision(context.Background())
 			require.NoError(err)
 
-			ts, err := NewNamespaceTypeSystem(tc.toCheck, ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
+			ts, err := typesystem.NewNamespaceTypeSystem(tc.toCheck, typesystem.ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
 			require.NoError(err)
 
 			ctx := context.Background()

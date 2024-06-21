@@ -13,10 +13,11 @@ import (
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/namespace"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
+	"spicedb/pkg/genutil/slicez"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/tuple"
-	"spicedb/pkg/util"
 )
 
 // ValidatedLookupSubjectsRequest represents a request after it has been validated and parsed for internal
@@ -100,7 +101,7 @@ func (cl *ConcurrentLookupSubjects) lookupDirectSubjects(
 ) error {
 	// TODO(jschorr): use type information to skip subject relations that cannot reach the subject type.
 	it, err := reader.QueryRelationships(ctx, datastore.RelationshipsFilter{
-		ResourceType:             req.ResourceRelation.Namespace,
+		OptionalResourceType:     req.ResourceRelation.Namespace,
 		OptionalResourceRelation: req.ResourceRelation.Relation,
 		OptionalResourceIds:      req.ResourceIds,
 	})
@@ -111,7 +112,7 @@ func (cl *ConcurrentLookupSubjects) lookupDirectSubjects(
 
 	toDispatchByType := datasets.NewSubjectByTypeSet()
 	foundSubjectsByResourceID := datasets.NewSubjectSetByResourceID()
-	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
+	relationshipsBySubjectONR := mapz.NewMultiMap[string, *core.RelationTuple]()
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
 			return it.Err()
@@ -195,7 +196,7 @@ func (cl *ConcurrentLookupSubjects) lookupViaTupleToUserset(
 ) error {
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(parentRequest.Revision)
 	it, err := ds.QueryRelationships(ctx, datastore.RelationshipsFilter{
-		ResourceType:             parentRequest.ResourceRelation.Namespace,
+		OptionalResourceType:     parentRequest.ResourceRelation.Namespace,
 		OptionalResourceRelation: ttu.Tupleset.Relation,
 		OptionalResourceIds:      parentRequest.ResourceIds,
 	})
@@ -205,7 +206,7 @@ func (cl *ConcurrentLookupSubjects) lookupViaTupleToUserset(
 	defer it.Close()
 
 	toDispatchByTuplesetType := datasets.NewSubjectByTypeSet()
-	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
+	relationshipsBySubjectONR := mapz.NewMultiMap[string, *core.RelationTuple]()
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
 			return it.Err()
@@ -325,7 +326,7 @@ func (cl *ConcurrentLookupSubjects) dispatchTo(
 	ctx context.Context,
 	parentRequest ValidatedLookupSubjectsRequest,
 	toDispatchByType *datasets.SubjectByTypeSet,
-	relationshipsBySubjectONR *util.MultiMap[string, *core.RelationTuple],
+	relationshipsBySubjectONR *mapz.MultiMap[string, *core.RelationTuple],
 	parentStream dispatch.LookupSubjectsStream,
 ) error {
 	if toDispatchByType.IsEmpty() {
@@ -416,7 +417,7 @@ func (cl *ConcurrentLookupSubjects) dispatchTo(
 		}
 
 		// Dispatch the found subjects as the resources of the next step.
-		util.ForEachChunk(resourceIds, maxDispatchChunkSize, func(resourceIdChunk []string) {
+		slicez.ForEachChunk(resourceIds, maxDispatchChunkSize, func(resourceIdChunk []string) {
 			g.Go(func() error {
 				return cl.d.DispatchLookupSubjects(&v1.DispatchLookupSubjectsRequest{
 					ResourceRelation: resourceType,

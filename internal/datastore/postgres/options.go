@@ -12,13 +12,15 @@ type postgresOptions struct {
 
 	maxRevisionStalenessPercent float64
 
-	watchBufferLength    uint16
-	revisionQuantization time.Duration
-	gcWindow             time.Duration
-	gcInterval           time.Duration
-	gcMaxOperationTime   time.Duration
-	splitAtUsersetCount  uint16
-	maxRetries           uint8
+	credentialsProviderName string
+
+	watchBufferLength       uint16
+	watchBufferWriteTimeout time.Duration
+	revisionQuantization    time.Duration
+	gcWindow                time.Duration
+	gcInterval              time.Duration
+	gcMaxOperationTime      time.Duration
+	maxRetries              uint8
 
 	enablePrometheusStats   bool
 	analyzeBeforeStatistics bool
@@ -49,15 +51,16 @@ const (
 	errQuantizationTooLarge = "revision quantization interval (%s) must be less than GC window (%s)"
 
 	defaultWatchBufferLength                 = 128
+	defaultWatchBufferWriteTimeout           = 1 * time.Second
 	defaultGarbageCollectionWindow           = 24 * time.Hour
 	defaultGarbageCollectionInterval         = time.Minute * 3
 	defaultGarbageCollectionMaxOperationTime = time.Minute
-	defaultUsersetBatchSize                  = 1024
 	defaultQuantization                      = 5 * time.Second
 	defaultMaxRevisionStalenessPercent       = 0.1
 	defaultEnablePrometheusStats             = false
 	defaultMaxRetries                        = 10
 	defaultGCEnabled                         = true
+	defaultCredentialsProviderName           = ""
 )
 
 // Option provides the facility to configure how clients within the
@@ -70,12 +73,13 @@ func generateConfig(options []Option) (postgresOptions, error) {
 		gcInterval:                  defaultGarbageCollectionInterval,
 		gcMaxOperationTime:          defaultGarbageCollectionMaxOperationTime,
 		watchBufferLength:           defaultWatchBufferLength,
-		splitAtUsersetCount:         defaultUsersetBatchSize,
+		watchBufferWriteTimeout:     defaultWatchBufferWriteTimeout,
 		revisionQuantization:        defaultQuantization,
 		maxRevisionStalenessPercent: defaultMaxRevisionStalenessPercent,
 		enablePrometheusStats:       defaultEnablePrometheusStats,
 		maxRetries:                  defaultMaxRetries,
 		gcEnabled:                   defaultGCEnabled,
+		credentialsProviderName:     defaultCredentialsProviderName,
 		queryInterceptor:            nil,
 	}
 
@@ -97,14 +101,6 @@ func generateConfig(options []Option) (postgresOptions, error) {
 	}
 
 	return computed, nil
-}
-
-// SplitAtUsersetCount is the batch size for which userset queries will be
-// split into smaller queries.
-//
-// This defaults to 1024.
-func SplitAtUsersetCount(splitAtUsersetCount uint16) Option {
-	return func(po *postgresOptions) { po.splitAtUsersetCount = splitAtUsersetCount }
 }
 
 // ReadConnHealthCheckInterval is the frequency at which both idle and max
@@ -239,6 +235,12 @@ func WatchBufferLength(watchBufferLength uint16) Option {
 	return func(po *postgresOptions) { po.watchBufferLength = watchBufferLength }
 }
 
+// WatchBufferWriteTimeout is the maximum timeout for writing to the watch buffer,
+// after which the caller to the watch will be disconnected.
+func WatchBufferWriteTimeout(watchBufferWriteTimeout time.Duration) Option {
+	return func(po *postgresOptions) { po.watchBufferWriteTimeout = watchBufferWriteTimeout }
+}
+
 // RevisionQuantization is the time bucket size to which advertised
 // revisions will be rounded.
 //
@@ -333,4 +335,12 @@ func WithQueryInterceptor(interceptor pgxcommon.QueryInterceptor) Option {
 // Steady-state configuration (e.g. fully migrated) by default
 func MigrationPhase(phase string) Option {
 	return func(po *postgresOptions) { po.migrationPhase = phase }
+}
+
+// CredentialsProviderName is the name of the CredentialsProvider implementation to use
+// for dynamically retrieving the datastore credentials at runtime
+//
+// Empty by default.
+func CredentialsProviderName(credentialsProviderName string) Option {
+	return func(po *postgresOptions) { po.credentialsProviderName = credentialsProviderName }
 }

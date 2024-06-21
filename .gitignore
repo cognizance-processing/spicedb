@@ -1,3 +1,7 @@
 dist/
 *.wasm
 cmd/spicedb/config.toml
+completions/
+.vscode/settings.json
+.env.local
+coverage.txt

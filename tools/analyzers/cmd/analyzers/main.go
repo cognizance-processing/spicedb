@@ -3,8 +3,11 @@ package main
 import (
 	"spicedb/tools/analyzers/closeafterusagecheck"
 	"spicedb/tools/analyzers/exprstatementcheck"
+	"spicedb/tools/analyzers/lendowncastcheck"
 	"spicedb/tools/analyzers/nilvaluecheck"
 	"spicedb/tools/analyzers/paniccheck"
+	"spicedb/tools/analyzers/zerologmarshalcheck"
+
 	"golang.org/x/tools/go/analysis/multichecker"
 )
 
@@ -14,5 +17,7 @@ func main() {
 		exprstatementcheck.Analyzer(),
 		closeafterusagecheck.Analyzer(),
 		paniccheck.Analyzer(),
+		lendowncastcheck.Analyzer(),
+		zerologmarshalcheck.Analyzer(),
 	)
 }

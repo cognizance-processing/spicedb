@@ -8,6 +8,9 @@ import (
 	"strings"
 
 	"spicedb/internal/datastore/common"
+	mysqlCommon "spicedb/internal/datastore/mysql/common"
+
+	"spicedb/pkg/datastore"
 
 	sq "github.com/Masterminds/squirrel"
 	sqlDriver "github.com/go-sql-driver/mysql"
@@ -35,16 +38,24 @@ type MySQLDriver struct {
 //
 // URI: [scheme://][user[:[password]]@]host[:port][/schema][?attribute1=value1&attribute2=value2...
 // See https://dev.mysql.com/doc/refman/8.0/en/connecting-using-uri-or-key-value-pairs.html
-func NewMySQLDriverFromDSN(url string, tablePrefix string) (*MySQLDriver, error) {
+func NewMySQLDriverFromDSN(url string, tablePrefix string, credentialsProvider datastore.CredentialsProvider) (*MySQLDriver, error) {
 	dbConfig, err := sqlDriver.ParseDSN(url)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
 
-	db, err := sql.Open("mysql", dbConfig.FormatDSN())
+	err = mysqlCommon.MaybeAddCredentialsProviderHook(dbConfig, credentialsProvider)
 	if err != nil {
 		return nil, fmt.Errorf(errUnableToInstantiate, err)
 	}
+
+	// Call NewConnector with the existing parsed configuration to preserve the BeforeConnect added by the CredentialsProvider
+	connector, err := sqlDriver.NewConnector(dbConfig)
+	if err != nil {
+		return nil, fmt.Errorf(errUnableToInstantiate, err)
+	}
+
+	db := sql.OpenDB(connector)
 	err = sqlDriver.SetLogger(&log.Logger)
 	if err != nil {
 		return nil, fmt.Errorf("unable to set logging to mysql driver: %w", err)
@@ -127,7 +138,12 @@ func BeginTxFunc(ctx context.Context, db *sql.DB, txOptions *sql.TxOptions, f fu
 	}
 
 	if err := f(tx); err != nil {
-		return errors.Join(err, tx.Rollback())
+		rerr := tx.Rollback()
+		if rerr != nil {
+			return errors.Join(err, rerr)
+		}
+
+		return err
 	}
 
 	return tx.Commit()

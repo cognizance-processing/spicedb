@@ -2,6 +2,7 @@ package computed_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"google.golang.org/protobuf/types/known/structpb"
@@ -13,7 +14,6 @@ import (
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/pkg/caveats/types"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/schemadsl/compiler"
@@ -66,7 +66,7 @@ func TestComputeCheckWithCaveats(t *testing.T) {
 			}
 
 			caveat anothercaveat(anothercondition uint) {
-				int(anothercondition) == 15
+				anothercondition == 15
 			}
 			`,
 			[]caveatedUpdate{
@@ -105,7 +105,7 @@ func TestComputeCheckWithCaveats(t *testing.T) {
 						"anothercondition": "15",
 					},
 					v1.ResourceCheckResult_CAVEATED_MEMBER,
-					[]string{"somecondition"},
+					[]string{"somecondition", "somebool"},
 					"",
 				},
 				{
@@ -815,7 +815,7 @@ func TestComputeCheckWithCaveats(t *testing.T) {
 
 			for _, r := range tt.checks {
 				r := r
-				t.Run(r.check, func(t *testing.T) {
+				t.Run(fmt.Sprintf("%s::%v", r.check, r.context), func(t *testing.T) {
 					rel := tuple.MustParse(r.check)
 
 					result, _, err := computed.ComputeCheck(ctx, dispatch,
@@ -866,7 +866,7 @@ func TestComputeCheckError(t *testing.T) {
 			},
 			Subject:       &core.ObjectAndRelation{},
 			CaveatContext: nil,
-			AtRevision:    revision.NoRevision,
+			AtRevision:    datastore.NoRevision,
 			MaximumDepth:  50,
 			DebugOption:   computed.BasicDebuggingEnabled,
 		},
@@ -920,7 +920,7 @@ func TestComputeBulkCheck(t *testing.T) {
 			CaveatContext: nil,
 			AtRevision:    revision,
 			MaximumDepth:  50,
-			DebugOption:   computed.BasicDebuggingEnabled,
+			DebugOption:   computed.NoDebugging,
 		},
 		[]string{"direct", "first", "second", "third"},
 	)
@@ -933,16 +933,15 @@ func TestComputeBulkCheck(t *testing.T) {
 }
 
 func writeCaveatedTuples(ctx context.Context, _ *testing.T, ds datastore.Datastore, schema string, updates []caveatedUpdate) (datastore.Revision, error) {
-	empty := ""
 	compiled, err := compiler.Compile(compiler.InputSchema{
 		Source:       "schema",
 		SchemaString: schema,
-	}, &empty)
+	}, compiler.AllowUnprefixedObjectType())
 	if err != nil {
 		return datastore.NoRevision, err
 	}
 
-	return ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
+	return ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
 		if err := rwt.WriteNamespaces(ctx, compiled.ObjectDefinitions...); err != nil {
 			return err
 		}

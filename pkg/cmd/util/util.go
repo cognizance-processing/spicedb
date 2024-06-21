@@ -1,5 +1,7 @@
 package util
 
+//go:generate go run github.com/ecordell/optgen -output zz_generated.options.go . GRPCServerConfig HTTPServerConfig
+
 import (
 	"context"
 	"crypto/tls"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/jzelinskie/stringz"
 	"github.com/rs/zerolog"
+	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -26,6 +29,7 @@ import (
 	// Register cert watcher metrics
 	_ "sigs.k8s.io/controller-runtime/pkg/certwatcher/metrics"
 
+	"spicedb/internal/grpchelpers"
 	log "spicedb/internal/logging"
 	"spicedb/pkg/x509util"
 )
@@ -33,15 +37,15 @@ import (
 const BufferedNetwork string = "buffnet"
 
 type GRPCServerConfig struct {
-	Address      string
-	Network      string
-	TLSCertPath  string
-	TLSKeyPath   string
-	MaxConnAge   time.Duration
-	Enabled      bool
-	BufferSize   int
-	ClientCAPath string
-	MaxWorkers   uint32
+	Address      string        `debugmap:"visible"`
+	Network      string        `debugmap:"visible"`
+	TLSCertPath  string        `debugmap:"visible"`
+	TLSKeyPath   string        `debugmap:"visible"`
+	MaxConnAge   time.Duration `debugmap:"visible"`
+	Enabled      bool          `debugmap:"visible"`
+	BufferSize   int           `debugmap:"visible"`
+	ClientCAPath string        `debugmap:"visible"`
+	MaxWorkers   uint32        `debugmap:"visible"`
 
 	flagPrefix string
 }
@@ -139,7 +143,7 @@ func (c *GRPCServerConfig) listenerAndDialer() (net.Listener, DialFunc, NetDialF
 					return bl.DialContext(ctx)
 				}))
 
-				return grpc.DialContext(ctx, BufferedNetwork, opts...)
+				return grpchelpers.Dial(ctx, BufferedNetwork, opts...)
 			}, func(ctx context.Context, s string) (net.Conn, error) {
 				return bl.DialContext(ctx)
 			}, nil
@@ -149,7 +153,7 @@ func (c *GRPCServerConfig) listenerAndDialer() (net.Listener, DialFunc, NetDialF
 		return nil, nil, nil, err
 	}
 	return l, func(ctx context.Context, opts ...grpc.DialOption) (*grpc.ClientConn, error) {
-		return grpc.DialContext(ctx, c.Address, opts...)
+		return grpchelpers.Dial(ctx, c.Address, opts...)
 	}, nil, nil
 }
 
@@ -295,37 +299,37 @@ func (d *disabledGrpcServer) NetDialContext(_ context.Context, _ string) (net.Co
 func (d *disabledGrpcServer) GracefulStop() {}
 
 type HTTPServerConfig struct {
-	Address     string
-	TLSCertPath string
-	TLSKeyPath  string
-	Enabled     bool
+	HTTPAddress     string `debugmap:"visible"`
+	HTTPTLSCertPath string `debugmap:"visible"`
+	HTTPTLSKeyPath  string `debugmap:"visible"`
+	HTTPEnabled     bool   `debugmap:"visible"`
 
 	flagPrefix string
 }
 
 func (c *HTTPServerConfig) Complete(level zerolog.Level, handler http.Handler) (RunnableHTTPServer, error) {
-	if !c.Enabled {
+	if !c.HTTPEnabled {
 		return &disabledHTTPServer{}, nil
 	}
 	srv := &http.Server{
-		Addr:              c.Address,
+		Addr:              c.HTTPAddress,
 		Handler:           handler,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	var serveFunc func() error
 	switch {
-	case c.TLSCertPath == "" && c.TLSKeyPath == "":
+	case c.HTTPTLSCertPath == "" && c.HTTPTLSKeyPath == "":
 		serveFunc = func() error {
 			log.WithLevel(level).
 				Str("addr", srv.Addr).
 				Str("service", c.flagPrefix).
-				Bool("insecure", c.TLSCertPath == "" && c.TLSKeyPath == "").
+				Bool("insecure", c.HTTPTLSCertPath == "" && c.HTTPTLSKeyPath == "").
 				Msg("http server started serving")
 			return srv.ListenAndServe()
 		}
 
-	case c.TLSCertPath != "" && c.TLSKeyPath != "":
-		watcher, err := certwatcher.New(c.TLSCertPath, c.TLSKeyPath)
+	case c.HTTPTLSCertPath != "" && c.HTTPTLSKeyPath != "":
+		watcher, err := certwatcher.New(c.HTTPTLSCertPath, c.HTTPTLSKeyPath)
 		if err != nil {
 			return nil, err
 		}
@@ -341,7 +345,7 @@ func (c *HTTPServerConfig) Complete(level zerolog.Level, handler http.Handler) (
 			log.WithLevel(level).
 				Str("addr", srv.Addr).
 				Str("prefix", c.flagPrefix).
-				Bool("insecure", c.TLSCertPath == "" && c.TLSKeyPath == "").
+				Bool("insecure", c.HTTPTLSCertPath == "" && c.HTTPTLSKeyPath == "").
 				Msg("http server started serving")
 			return srv.Serve(listener)
 		}
@@ -365,7 +369,7 @@ func (c *HTTPServerConfig) Complete(level zerolog.Level, handler http.Handler) (
 			}
 			log.WithLevel(level).Str("addr", srv.Addr).Str("service", c.flagPrefix).Msg("http server stopped serving")
 		},
-		enabled: c.Enabled,
+		enabled: c.HTTPEnabled,
 	}, nil
 }
 
@@ -402,10 +406,39 @@ func RegisterHTTPServerFlags(flags *pflag.FlagSet, config *HTTPServerConfig, fla
 	serviceName = stringz.DefaultEmpty(serviceName, "http")
 	defaultAddr = stringz.DefaultEmpty(defaultAddr, ":8443")
 	config.flagPrefix = flagPrefix
-	flags.StringVar(&config.Address, flagPrefix+"-addr", defaultAddr, "address to listen on to serve "+serviceName)
-	flags.StringVar(&config.TLSCertPath, flagPrefix+"-tls-cert-path", "", "local path to the TLS certificate used to serve "+serviceName)
-	flags.StringVar(&config.TLSKeyPath, flagPrefix+"-tls-key-path", "", "local path to the TLS key used to serve "+serviceName)
-	flags.BoolVar(&config.Enabled, flagPrefix+"-enabled", defaultEnabled, "enable http "+serviceName+" server")
+	flags.StringVar(&config.HTTPAddress, flagPrefix+"-addr", defaultAddr, "address to listen on to serve "+serviceName)
+	flags.StringVar(&config.HTTPTLSCertPath, flagPrefix+"-tls-cert-path", "", "local path to the TLS certificate used to serve "+serviceName)
+	flags.StringVar(&config.HTTPTLSKeyPath, flagPrefix+"-tls-key-path", "", "local path to the TLS key used to serve "+serviceName)
+	flags.BoolVar(&config.HTTPEnabled, flagPrefix+"-enabled", defaultEnabled, "enable http "+serviceName+" server")
+}
+
+// RegisterDeprecatedHTTPServerFlags registers a set of HTTP server flags as fully deprecated, for a removed HTTP service.
+func RegisterDeprecatedHTTPServerFlags(cmd *cobra.Command, flagPrefix, serviceName string) error {
+	ignored1 := ""
+	ignored2 := ""
+	ignored3 := ""
+	ignored4 := false
+	flags := cmd.Flags()
+
+	flags.StringVar(&ignored1, flagPrefix+"-addr", "", "address to listen on to serve "+serviceName)
+	flags.StringVar(&ignored2, flagPrefix+"-tls-cert-path", "", "local path to the TLS certificate used to serve "+serviceName)
+	flags.StringVar(&ignored3, flagPrefix+"-tls-key-path", "", "local path to the TLS key used to serve "+serviceName)
+	flags.BoolVar(&ignored4, flagPrefix+"-enabled", false, "enable http "+serviceName+" server")
+
+	if err := cmd.Flags().MarkDeprecated(flagPrefix+"-addr", "service has been removed; flag is a no-op"); err != nil {
+		return fmt.Errorf("failed to mark flag as deprecated: %w", err)
+	}
+	if err := cmd.Flags().MarkDeprecated(flagPrefix+"-tls-cert-path", "service has been removed; flag is a no-op"); err != nil {
+		return fmt.Errorf("failed to mark flag as deprecated: %w", err)
+	}
+	if err := cmd.Flags().MarkDeprecated(flagPrefix+"-tls-key-path", "service has been removed; flag is a no-op"); err != nil {
+		return fmt.Errorf("failed to mark flag as deprecated: %w", err)
+	}
+	if err := cmd.Flags().MarkDeprecated(flagPrefix+"-enabled", "service has been removed; flag is a no-op"); err != nil {
+		return fmt.Errorf("failed to mark flag as deprecated: %w", err)
+	}
+
+	return nil
 }
 
 type disabledHTTPServer struct{}

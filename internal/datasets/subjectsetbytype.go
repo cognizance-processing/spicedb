@@ -6,9 +6,6 @@ import (
 	"spicedb/pkg/tuple"
 )
 
-// TODO(jschorr): See if there is a nice way we can combine this withn ONRByTypeSet and the multimap
-// used in Check to allow for a simple implementation.
-
 // SubjectByTypeSet is a set of SubjectSet's, grouped by their subject types.
 type SubjectByTypeSet struct {
 	byType map[string]SubjectSet
@@ -72,7 +69,17 @@ func (s *SubjectByTypeSet) Map(mapper func(rr *core.RelationReference) (*core.Re
 		if updatedType == nil {
 			continue
 		}
-		mapped.byType[tuple.JoinRelRef(updatedType.Namespace, updatedType.Relation)] = subjectset
+
+		key := tuple.JoinRelRef(updatedType.Namespace, updatedType.Relation)
+		if existing, ok := mapped.byType[key]; ok {
+			cloned := subjectset.Clone()
+			if err := cloned.UnionWithSet(existing); err != nil {
+				return nil, err
+			}
+			mapped.byType[key] = cloned
+		} else {
+			mapped.byType[key] = subjectset
+		}
 	}
 	return mapped, nil
 }

@@ -120,6 +120,15 @@ var testCases = []struct {
 		relFormat: rel("tenant/testns", "testobj", "testrel", "tenant/user", "testusr", "somerel"),
 	},
 	{
+		input:          "org/division/team/testns:testobj#testrel@org/division/identity_team/user:testusr#somerel",
+		expectedOutput: "org/division/team/testns:testobj#testrel@org/division/identity_team/user:testusr#somerel",
+		tupleFormat: makeTuple(
+			ObjectAndRelation("org/division/team/testns", "testobj", "testrel"),
+			ObjectAndRelation("org/division/identity_team/user", "testusr", "somerel"),
+		),
+		relFormat: rel("org/division/team/testns", "testobj", "testrel", "org/division/identity_team/user", "testusr", "somerel"),
+	},
+	{
 		input:          "tenant/testns:testobj#testrel@tenant/user:testusr something",
 		expectedOutput: "tenant/testns:testobj#testrel@tenant/user:testusr",
 		tupleFormat:    nil,
@@ -195,6 +204,18 @@ var testCases = []struct {
 		relFormat: crel("document", "foo", "viewer", "user", "tom", "", "tenant/somecaveat", nil),
 	},
 	{
+		input:          "document:foo#viewer@user:tom[tenant/division/somecaveat]",
+		expectedOutput: "document:foo#viewer@user:tom[tenant/division/somecaveat]",
+		tupleFormat: MustWithCaveat(
+			makeTuple(
+				ObjectAndRelation("document", "foo", "viewer"),
+				ObjectAndRelation("user", "tom", "..."),
+			),
+			"tenant/division/somecaveat",
+		),
+		relFormat: crel("document", "foo", "viewer", "user", "tom", "", "tenant/division/somecaveat", nil),
+	},
+	{
 		input:          "document:foo#viewer@user:tom[somecaveat",
 		expectedOutput: "",
 		tupleFormat:    nil,
@@ -267,7 +288,6 @@ var testCases = []struct {
 			},
 		}),
 	},
-
 	{
 		input:          `document:foo#viewer@user:tom[somecaveat:{"hi":{"yo":{"hey":[1,2,3]}}}]`,
 		expectedOutput: `document:foo#viewer@user:tom[somecaveat:{"hi":{"yo":{"hey":[1,2,3]}}}]`,
@@ -331,6 +351,23 @@ var testCases = []struct {
 			ObjectAndRelation("user", "-base65YWZzZGZh-ZHNmZHPwn5iK8J+YivC/fmIrwn5iK==", "..."),
 		),
 		relFormat: rel("testns", "-base64YWZzZGZh-ZHNmZHPwn5iK8J+YivC/fmIrwn5iK==", "testrel", "user", "-base65YWZzZGZh-ZHNmZHPwn5iK8J+YivC/fmIrwn5iK==", ""),
+	},
+	{
+		input:          `document:foo#viewer@user:tom[somecaveat:{"hi":"a@example.com"}]`,
+		expectedOutput: `document:foo#viewer@user:tom[somecaveat:{"hi":"a@example.com"}]`,
+		tupleFormat: MustWithCaveat(
+			makeTuple(
+				ObjectAndRelation("document", "foo", "viewer"),
+				ObjectAndRelation("user", "tom", "..."),
+			),
+			"somecaveat",
+			map[string]any{
+				"hi": "a@example.com",
+			},
+		),
+		relFormat: crel("document", "foo", "viewer", "user", "tom", "", "somecaveat", map[string]any{
+			"hi": "a@example.com",
+		}),
 	},
 }
 
@@ -400,7 +437,7 @@ func TestConvert(t *testing.T) {
 			relString := strings.Replace(MustRelString(relationship), " ", "", -1)
 			require.Equal(tc.expectedOutput, relString)
 
-			backToTpl := FromRelationship(relationship)
+			backToTpl := FromRelationship[*v1.ObjectReference, *v1.SubjectReference, *v1.ContextualizedCaveat](relationship)
 			testutil.RequireProtoEqual(t, tc.tupleFormat, backToTpl, "found difference in converted tuple")
 
 			serialized := strings.Replace(MustString(backToTpl), " ", "", -1)
@@ -418,6 +455,315 @@ func TestValidate(t *testing.T) {
 				require.NoError(t, ValidateResourceID(parsed.Resource.ObjectId))
 				require.NoError(t, ValidateSubjectID(parsed.Subject.Object.ObjectId))
 			}
+		})
+	}
+}
+
+func TestCopyRelationTupleToRelationship(t *testing.T) {
+	testCases := []*core.RelationTuple{
+		{
+			ResourceAndRelation: &core.ObjectAndRelation{
+				Namespace: "abc",
+				ObjectId:  "def",
+				Relation:  "ghi",
+			},
+			Subject: &core.ObjectAndRelation{
+				Namespace: "jkl",
+				ObjectId:  "mno",
+				Relation:  "pqr",
+			},
+		},
+		{
+			ResourceAndRelation: &core.ObjectAndRelation{
+				Namespace: "abc",
+				ObjectId:  "def",
+				Relation:  "ghi",
+			},
+			Subject: &core.ObjectAndRelation{
+				Namespace: "jkl",
+				ObjectId:  "mno",
+				Relation:  "...",
+			},
+		},
+		{
+			ResourceAndRelation: &core.ObjectAndRelation{
+				Namespace: "abc",
+				ObjectId:  "def",
+				Relation:  "ghi",
+			},
+			Subject: &core.ObjectAndRelation{
+				Namespace: "jkl",
+				ObjectId:  "mno",
+				Relation:  "pqr",
+			},
+			Caveat: &core.ContextualizedCaveat{
+				CaveatName: "stu",
+				Context:    &structpb.Struct{},
+			},
+		},
+		{
+			ResourceAndRelation: &core.ObjectAndRelation{
+				Namespace: "abc",
+				ObjectId:  "def",
+				Relation:  "ghi",
+			},
+			Subject: &core.ObjectAndRelation{
+				Namespace: "jkl",
+				ObjectId:  "mno",
+				Relation:  "pqr",
+			},
+			Caveat: &core.ContextualizedCaveat{
+				CaveatName: "stu",
+				Context: &structpb.Struct{
+					Fields: map[string]*structpb.Value{
+						"vwx": {
+							Kind: &structpb.Value_StringValue{
+								StringValue: "yz",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(MustString(tc), func(t *testing.T) {
+			require := require.New(t)
+
+			dst := &v1.Relationship{
+				Resource: &v1.ObjectReference{},
+				Subject: &v1.SubjectReference{
+					Object: &v1.ObjectReference{},
+				},
+			}
+			optionalCaveat := &v1.ContextualizedCaveat{}
+
+			CopyRelationTupleToRelationship(tc, dst, optionalCaveat)
+
+			expectedSubjectRelation := tc.Subject.Relation
+			if tc.Subject.Relation == "..." {
+				expectedSubjectRelation = ""
+			}
+
+			require.Equal(tc.ResourceAndRelation.Namespace, dst.Resource.ObjectType)
+			require.Equal(tc.ResourceAndRelation.ObjectId, dst.Resource.ObjectId)
+			require.Equal(tc.ResourceAndRelation.Relation, dst.Relation)
+			require.Equal(tc.Subject.Namespace, dst.Subject.Object.ObjectType)
+			require.Equal(tc.Subject.ObjectId, dst.Subject.Object.ObjectId)
+			require.Equal(expectedSubjectRelation, dst.Subject.OptionalRelation)
+
+			if tc.Caveat != nil {
+				require.Equal(tc.Caveat.CaveatName, dst.OptionalCaveat.CaveatName)
+				require.Equal(tc.Caveat.Context, dst.OptionalCaveat.Context)
+			} else {
+				require.Nil(dst.OptionalCaveat)
+			}
+		})
+	}
+}
+
+func TestEqual(t *testing.T) {
+	equalTestCases := []*core.RelationTuple{
+		makeTuple(
+			ObjectAndRelation("testns", "testobj", "testrel"),
+			ObjectAndRelation("user", "testusr", "..."),
+		),
+		MustWithCaveat(
+			makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+			"somecaveat",
+			map[string]any{
+				"context": map[string]any{
+					"deeply": map[string]any{
+						"nested": true,
+					},
+				},
+			},
+		),
+		MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":\"there\"}]"),
+		MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":123}}]"),
+		MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":{\"hey\":true}}, \"hi2\":{\"yo2\":{\"hey2\":false}}}]"),
+		MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":{\"hey\":true}}, \"hi2\":{\"yo2\":{\"hey2\":[1,2,3]}}}]"),
+	}
+
+	for _, tc := range equalTestCases {
+		t.Run(MustString(tc), func(t *testing.T) {
+			require := require.New(t)
+			require.True(Equal(tc, tc.CloneVT()))
+			require.True(Equal(tc, MustParse(MustString(tc))))
+		})
+	}
+
+	notEqualTestCases := []struct {
+		name string
+		lhs  *core.RelationTuple
+		rhs  *core.RelationTuple
+	}{
+		{
+			name: "Mismatch Resource Type",
+			lhs: makeTuple(
+				ObjectAndRelation("testns1", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns2", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+		},
+		{
+			name: "Mismatch Resource ID",
+			lhs: makeTuple(
+				ObjectAndRelation("testns", "testobj1", "testrel"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns", "testobj2", "testrel"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+		},
+		{
+			name: "Mismatch Resource Relationship",
+			lhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel1"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel2"),
+				ObjectAndRelation("user", "testusr", "..."),
+			),
+		},
+		{
+			name: "Mismatch Subject Type",
+			lhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user1", "testusr", "..."),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user2", "testusr", "..."),
+			),
+		},
+		{
+			name: "Mismatch Subject ID",
+			lhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr1", "..."),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr2", "..."),
+			),
+		},
+		{
+			name: "Mismatch Subject Relationship",
+			lhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr", "testrel1"),
+			),
+			rhs: makeTuple(
+				ObjectAndRelation("testns", "testobj", "testrel"),
+				ObjectAndRelation("user", "testusr", "testrel2"),
+			),
+		},
+		{
+			name: "Mismatch Caveat Name",
+			lhs: MustWithCaveat(
+				makeTuple(
+					ObjectAndRelation("testns", "testobj", "testrel"),
+					ObjectAndRelation("user", "testusr", "..."),
+				),
+				"somecaveat1",
+				map[string]any{
+					"context": map[string]any{
+						"deeply": map[string]any{
+							"nested": true,
+						},
+					},
+				},
+			),
+			rhs: MustWithCaveat(
+				makeTuple(
+					ObjectAndRelation("testns", "testobj", "testrel"),
+					ObjectAndRelation("user", "testusr", "..."),
+				),
+				"somecaveat2",
+				map[string]any{
+					"context": map[string]any{
+						"deeply": map[string]any{
+							"nested": true,
+						},
+					},
+				},
+			),
+		},
+		{
+			name: "Mismatch Caveat Content",
+			lhs: MustWithCaveat(
+				makeTuple(
+					ObjectAndRelation("testns", "testobj", "testrel"),
+					ObjectAndRelation("user", "testusr", "..."),
+				),
+				"somecaveat",
+				map[string]any{
+					"context": map[string]any{
+						"deeply": map[string]any{
+							"nested": "1",
+						},
+					},
+				},
+			),
+			rhs: MustWithCaveat(
+				makeTuple(
+					ObjectAndRelation("testns", "testobj", "testrel"),
+					ObjectAndRelation("user", "testusr", "..."),
+				),
+				"somecaveat",
+				map[string]any{
+					"context": map[string]any{
+						"deeply": map[string]any{
+							"nested": "2",
+						},
+					},
+				},
+			),
+		},
+		{
+			name: "missing caveat context via string",
+			lhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":\"there\"}]"),
+			rhs:  MustParse("document:foo#viewer@user:tom[somecaveat]"),
+		},
+		{
+			name: "mismatch caveat context via string",
+			lhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":\"there\"}]"),
+			rhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":\"there2\"}]"),
+		},
+		{
+			name: "mismatch caveat name",
+			lhs:  MustParse("document:foo#viewer@user:tom[somecaveat]"),
+			rhs:  MustParse("document:foo#viewer@user:tom[somecaveat2]"),
+		},
+		{
+			name: "mismatch caveat context, deeply nested",
+			lhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":123}}]"),
+			rhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":124}}]"),
+		},
+		{
+			name: "mismatch caveat context, deeply nested with array",
+			lhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":[1,2,3]}}]"),
+			rhs:  MustParse("document:foo#viewer@user:tom[somecaveat:{\"hi\":{\"yo\":[1,2,4]}}]"),
+		},
+	}
+
+	for _, tc := range notEqualTestCases {
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+			require.False(Equal(tc.lhs, tc.rhs))
+			require.False(Equal(tc.rhs, tc.lhs))
+			require.False(Equal(tc.lhs, MustParse(MustString(tc.rhs))))
+			require.False(Equal(tc.rhs, MustParse(MustString(tc.lhs))))
 		})
 	}
 }

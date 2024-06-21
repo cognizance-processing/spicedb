@@ -2,15 +2,20 @@ package caveats
 
 import (
 	"fmt"
+	"strings"
 
-	"github.com/google/cel-go/cel"
-	"github.com/google/cel-go/common"
+	"github.com/authzed/cel-go/cel"
+	"github.com/authzed/cel-go/common"
+	"google.golang.org/protobuf/proto"
 
+	"spicedb/pkg/caveats/types"
+	"spicedb/pkg/genutil/mapz"
 	impl "spicedb/pkg/proto/impl/v1"
-	"spicedb/pkg/util"
 )
 
 const anonymousCaveat = ""
+
+const maxCaveatExpressionSize = 100_000 // characters
 
 // CompiledCaveat is a compiled form of a caveat.
 type CompiledCaveat struct {
@@ -48,23 +53,30 @@ func (cc CompiledCaveat) Serialize() ([]byte, error) {
 		Name: cc.name,
 	}
 
-	return caveat.MarshalVT()
+	// TODO(jschorr): change back to MarshalVT once stable is supported.
+	// See: https://github.com/planetscale/vtprotobuf/pull/133
+	return proto.MarshalOptions{Deterministic: true}.Marshal(caveat)
 }
 
 // ReferencedParameters returns the names of the parameters referenced in the expression.
-func (cc CompiledCaveat) ReferencedParameters(parameters []string) *util.Set[string] {
-	referencedParams := util.NewSet[string]()
-	definedParameters := util.NewSet[string]()
+func (cc CompiledCaveat) ReferencedParameters(parameters []string) (*mapz.Set[string], error) {
+	referencedParams := mapz.NewSet[string]()
+	definedParameters := mapz.NewSet[string]()
 	definedParameters.Extend(parameters)
 
-	referencedParameters(definedParameters, cc.ast.Expr(), referencedParams)
-	return referencedParams
+	checked, err := cel.AstToCheckedExpr(cc.ast)
+	if err != nil {
+		return nil, err
+	}
+
+	referencedParameters(definedParameters, checked.Expr, referencedParams)
+	return referencedParams, nil
 }
 
 // CompileCaveatWithName compiles a caveat string into a compiled caveat with a given name,
 // or returns the compilation errors.
 func CompileCaveatWithName(env *Environment, exprString, name string) (*CompiledCaveat, error) {
-	c, err := CompileCaveatWithSource(env, name, common.NewStringSource(exprString, name))
+	c, err := CompileCaveatWithSource(env, name, common.NewStringSource(exprString, name), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -73,15 +85,54 @@ func CompileCaveatWithName(env *Environment, exprString, name string) (*Compiled
 }
 
 // CompileCaveatWithSource compiles a caveat source into a compiled caveat, or returns the compilation errors.
-func CompileCaveatWithSource(env *Environment, name string, source common.Source) (*CompiledCaveat, error) {
+func CompileCaveatWithSource(env *Environment, name string, source common.Source, startPosition SourcePosition) (*CompiledCaveat, error) {
 	celEnv, err := env.asCelEnvironment()
 	if err != nil {
 		return nil, err
 	}
 
+	if len(strings.TrimSpace(source.Content())) > maxCaveatExpressionSize {
+		return nil, fmt.Errorf("caveat expression provided exceeds maximum allowed size of %d characters", maxCaveatExpressionSize)
+	}
+
 	ast, issues := celEnv.CompileSource(source)
 	if issues != nil && issues.Err() != nil {
-		return nil, CompilationErrors{issues.Err(), issues}
+		if startPosition == nil {
+			return nil, CompilationErrors{issues.Err(), issues}
+		}
+
+		// Construct errors with the source location adjusted based on the starting source position
+		// in the parent schema (if any). This ensures that the errors coming out of CEL show the correct
+		// *overall* location information..
+		line, col, err := startPosition.LineAndColumn()
+		if err != nil {
+			return nil, err
+		}
+
+		adjustedErrors := common.NewErrors(source)
+		for _, existingErr := range issues.Errors() {
+			location := existingErr.Location
+
+			// NOTE: Our locations are zero-indexed while CEL is 1-indexed, so we need to adjust the line/column values accordingly.
+			if location.Line() == 1 {
+				location = common.NewLocation(line+location.Line(), col+location.Column())
+			} else {
+				location = common.NewLocation(line+location.Line(), location.Column())
+			}
+
+			adjustedError := &common.Error{
+				Message:  existingErr.Message,
+				ExprID:   existingErr.ExprID,
+				Location: location,
+			}
+
+			adjustedErrors = adjustedErrors.Append([]*common.Error{
+				adjustedError,
+			})
+		}
+
+		adjustedIssues := cel.NewIssues(adjustedErrors)
+		return nil, CompilationErrors{adjustedIssues.Err(), adjustedIssues}
 	}
 
 	if ast.OutputType() != cel.BoolType {
@@ -96,22 +147,27 @@ func CompileCaveatWithSource(env *Environment, name string, source common.Source
 // compileCaveat compiles a caveat string into a compiled caveat, or returns the compilation errors.
 func compileCaveat(env *Environment, exprString string) (*CompiledCaveat, error) {
 	s := common.NewStringSource(exprString, "caveat")
-	return CompileCaveatWithSource(env, "caveat", s)
+	return CompileCaveatWithSource(env, "caveat", s, nil)
 }
 
 // DeserializeCaveat deserializes a byte-serialized caveat back into a CompiledCaveat.
-func DeserializeCaveat(serialized []byte) (*CompiledCaveat, error) {
+func DeserializeCaveat(serialized []byte, parameterTypes map[string]types.VariableType) (*CompiledCaveat, error) {
 	if len(serialized) == 0 {
 		return nil, fmt.Errorf("given empty serialized")
 	}
 
-	celEnv, err := NewEnvironment().asCelEnvironment()
+	caveat := &impl.DecodedCaveat{}
+	err := caveat.UnmarshalVT(serialized)
 	if err != nil {
 		return nil, err
 	}
 
-	caveat := &impl.DecodedCaveat{}
-	err = caveat.UnmarshalVT(serialized)
+	env, err := EnvForVariables(parameterTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	celEnv, err := env.asCelEnvironment()
 	if err != nil {
 		return nil, err
 	}

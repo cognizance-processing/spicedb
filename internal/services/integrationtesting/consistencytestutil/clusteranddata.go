@@ -15,9 +15,9 @@ import (
 	"spicedb/internal/dispatch/graph"
 	"spicedb/internal/dispatch/keys"
 	datastoremw "spicedb/internal/middleware/datastore"
-	"spicedb/internal/namespace"
 	"spicedb/internal/testserver"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/typesystem"
 	"spicedb/pkg/validationfile"
 )
 
@@ -59,7 +59,7 @@ func BuildDataAndCreateClusterForTesting(t *testing.T, consistencyTestFilePath s
 
 	// Validate the type system for each namespace.
 	for _, nsDef := range populated.NamespaceDefinitions {
-		_, ts, err := namespace.ReadNamespaceAndTypes(
+		_, ts, err := typesystem.ReadNamespaceAndTypes(
 			dsCtx,
 			nsDef.Name,
 			ds.SnapshotReader(revision),

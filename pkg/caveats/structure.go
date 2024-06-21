@@ -5,12 +5,12 @@ import (
 
 	exprpb "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 
-	"spicedb/pkg/util"
+	"spicedb/pkg/genutil/mapz"
 )
 
 // referencedParameters traverses the expression given and finds all parameters which are referenced
 // in the expression for the purpose of usage tracking.
-func referencedParameters(definedParameters *util.Set[string], expr *exprpb.Expr, referencedParams *util.Set[string]) {
+func referencedParameters(definedParameters *mapz.Set[string], expr *exprpb.Expr, referencedParams *mapz.Set[string]) {
 	if expr == nil {
 		return
 	}

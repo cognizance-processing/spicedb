@@ -35,6 +35,24 @@ func TestCheckOperation(t *testing.T) {
 
 	tests := []testCase{
 		{
+			"invalid keyword",
+			`def foo {
+				relation bar:
+			}`,
+			[]*core.RelationTuple{},
+			tuple.MustParse("somenamespace:someobj#anotherrel@user:foo"),
+			nil,
+			&devinterface.DeveloperError{
+				Message: "Unexpected token at root level: TokenTypeIdentifier",
+				Kind:    devinterface.DeveloperError_SCHEMA_ISSUE,
+				Source:  devinterface.DeveloperError_SCHEMA,
+				Line:    1,
+				Column:  1,
+				Context: "def",
+			},
+			nil,
+		},
+		{
 			"invalid namespace",
 			`definition foo {
 				relation bar:
@@ -59,7 +77,7 @@ func TestCheckOperation(t *testing.T) {
 			tuple.MustParse("somenamespace:someobj#anotherrel@user:foo"),
 			nil,
 			&devinterface.DeveloperError{
-				Message: "error in object definition fo: invalid NamespaceDefinition.Name: value does not match regex pattern \"^([a-z][a-z0-9_]{1,62}[a-z0-9]/)?[a-z][a-z0-9_]{1,62}[a-z0-9]$\"",
+				Message: "error in object definition fo: invalid NamespaceDefinition.Name: value does not match regex pattern \"^([a-z][a-z0-9_]{1,62}[a-z0-9]/)*[a-z][a-z0-9_]{1,62}[a-z0-9]$\"",
 				Kind:    devinterface.DeveloperError_SCHEMA_ISSUE,
 				Source:  devinterface.DeveloperError_SCHEMA,
 				Line:    1,
@@ -315,7 +333,7 @@ func TestCheckOperation(t *testing.T) {
 			tuple.MustParse("resource:someobj#view@user:foo"),
 			nil,
 			&devinterface.DeveloperError{
-				Message: "subjects of type `user` are not allowed on relation `resource#viewer`",
+				Message: "subjects of type `user` are not allowed on relation `resource#viewer` without one of the following caveats: somecaveat",
 				Kind:    devinterface.DeveloperError_INVALID_SUBJECT_TYPE,
 				Source:  devinterface.DeveloperError_RELATIONSHIP,
 				Context: "resource:someobj#viewer@user:foo",
@@ -414,6 +432,7 @@ func TestRunAssertionsAndValidationOperations(t *testing.T) {
 		validationYaml         string
 		assertionsYaml         string
 		expectedError          *devinterface.DeveloperError
+		expectCheckTraces      bool
 		expectedValidationYaml string
 	}
 
@@ -425,6 +444,7 @@ func TestRunAssertionsAndValidationOperations(t *testing.T) {
 			"",
 			"",
 			nil,
+			false,
 			"{}\n",
 		},
 		{
@@ -440,6 +460,7 @@ func TestRunAssertionsAndValidationOperations(t *testing.T) {
 				Context: "asdkjhg",
 				Line:    1,
 			},
+			false,
 			"",
 		},
 		{
@@ -455,6 +476,7 @@ func TestRunAssertionsAndValidationOperations(t *testing.T) {
 				Context: "asdhasj",
 				Line:    1,
 			},
+			false,
 			"",
 		},
 		{
@@ -474,6 +496,7 @@ assertFalse: garbage
 				Source:  devinterface.DeveloperError_ASSERTION,
 				Line:    5,
 			},
+			false,
 			"",
 		},
 		{
@@ -495,6 +518,7 @@ assertFalse: garbage
 				Column:  0,
 				Context: "garbage",
 			},
+			false,
 			"",
 		},
 		{
@@ -512,6 +536,7 @@ assertFalse: garbage
 				Column:  3,
 				Context: "something",
 			},
+			false,
 			"",
 		},
 		{
@@ -534,6 +559,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			true,
 			"{}\n",
 		},
 		{
@@ -556,6 +582,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			true,
 			"{}\n",
 		},
 		{
@@ -576,6 +603,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			"{}\n",
 		},
 		{
@@ -596,6 +624,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			"{}\n",
 		},
 		{
@@ -620,6 +649,7 @@ assertFalse: garbage
 				Line:    1,
 				Column:  1,
 			},
+			false,
 			`document:somedoc#view:
 - '[user:jimmy] is <document:somedoc#writer>'
 `,
@@ -648,6 +678,7 @@ assertFalse: garbage
 				Line:    3,
 				Column:  3,
 			},
+			false,
 			`document:somedoc#view:
 - '[user:jimmy] is <document:somedoc#writer>'
 `,
@@ -675,6 +706,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			``,
 		},
 		{
@@ -700,6 +732,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			``,
 		},
 		{
@@ -725,6 +758,7 @@ assertFalse: garbage
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			`document:somedoc#view:
 - '[user:jimmy] is <document:somedoc#writer>'
 `,
@@ -773,6 +807,7 @@ assertFalse:
 - 'document:somedoc#viewer@user:sarah with {"somecondition": "45"}'
 `,
 			nil,
+			false,
 			`document:somedoc#view:
 - '[user:fred[...]] is <document:somedoc#viewer>'
 - '[user:jake] is <document:somedoc#viewer>'
@@ -801,6 +836,7 @@ assertFalse:
 - document:somedoc#writer@user:jimmy
 `,
 			nil,
+			false,
 			`document:somedoc#view:
 - '[user:jimmy] is <document:somedoc#viewer>/<document:somedoc#writer>'
 `,
@@ -832,6 +868,7 @@ assertFalse:
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			`document:somedoc#view:
 - '[user:jimmy] is <document:somedoc#viewer>/<document:somedoc#writer>'
 `,
@@ -850,6 +887,7 @@ assertFalse:
 				Source:  devinterface.DeveloperError_RELATIONSHIP,
 				Context: `document:somedoc#writer@user:jimmy`,
 			},
+			false,
 			``,
 		},
 		{
@@ -867,6 +905,7 @@ assertFalse:
 				Source:  devinterface.DeveloperError_RELATIONSHIP,
 				Context: `document:somedoc#writer@user:jimmy`,
 			},
+			false,
 			``,
 		},
 		{
@@ -893,6 +932,7 @@ assertFalse:
 assertFalse:
 - document:somedoc#writer@user:somegal`,
 			nil,
+			false,
 			`document:somedoc#view:
 - '[user:*] is <document:somedoc#viewer>'
 - '[user:jimmy] is <document:somedoc#writer>'
@@ -919,8 +959,37 @@ assertFalse:
 assertFalse:
 - document:somedoc#view@user:jimmy`,
 			nil,
+			false,
 			`document:somedoc#view:
 - '[user:* - {user:jimmy}] is <document:somedoc#viewer>'
+`,
+		},
+		{
+			"wildcard multiple exclusion",
+			`
+		   			definition user {}
+		   			definition document {
+		   				relation banned: user
+		   				relation viewer: user | user:*
+		   				permission view = viewer - banned
+		   			}
+		   			`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:somedoc#banned@user:jimmy"),
+				tuple.MustParse("document:somedoc#banned@user:fred"),
+				tuple.MustParse("document:somedoc#viewer@user:*"),
+			},
+			`"document:somedoc#view":
+- "[user:* - {user:fred, user:jimmy}] is <document:somedoc#viewer>"`,
+			`assertTrue:
+- document:somedoc#view@user:somegal
+assertFalse:
+- document:somedoc#view@user:jimmy
+- document:somedoc#view@user:fred`,
+			nil,
+			false,
+			`document:somedoc#view:
+- '[user:* - {user:fred, user:jimmy}] is <document:somedoc#viewer>'
 `,
 		},
 		{
@@ -947,6 +1016,7 @@ assertFalse:
 - document:somedoc#view@user:jimmy
 - document:somedoc#view@user:sarah`,
 			nil,
+			false,
 			`document:somedoc#view:
 - '[user:* - {user:jimmy, user:sarah}] is <document:somedoc#viewer>'
 `,
@@ -976,6 +1046,7 @@ assertFalse:
 - document:somedoc#empty@user:jill
 - document:somedoc#empty@user:tom`,
 			nil,
+			false,
 			"document:somedoc#empty: []\ndocument:somedoc#view:\n- '[user:jill] is <document:somedoc#viewer>'\n- '[user:tom] is <document:somedoc#viewer>'\n",
 		},
 		{
@@ -1005,6 +1076,7 @@ assertFalse:
 				Line:    2,
 				Column:  3,
 			},
+			false,
 			"document:somedoc#view:\n- '[user:jill] is <document:somedoc#viewer>'\n- '[user:tom] is <document:somedoc#viewer>'\n",
 		},
 
@@ -1043,6 +1115,7 @@ assertFalse:
 				Kind:    devinterface.DeveloperError_MISSING_EXPECTED_RELATIONSHIP,
 				Context: "[user:sarah] is <document:somedoc#viewer>",
 			},
+			false,
 			`document:somedoc#view:
 - '[user:sarah[...]] is <document:somedoc#viewer>'
 `,
@@ -1097,6 +1170,19 @@ assertFalse:
 						errors = append(errors, response.GetOperationsResults().Results[1].GetValidationResult().ValidationErrors...)
 					}
 				}
+
+				if tc.expectCheckTraces {
+					require.NotNil(t, errors[0].CheckDebugInformation)
+					require.NotNil(t, errors[0].CheckResolvedDebugInformation)
+
+					// Unset these values to avoid the need to specify above
+					// in the test data. This is necessary because the debug
+					// information contains the revision timestamp, which changes
+					// on every call.
+					errors[0].CheckDebugInformation = nil
+					errors[0].CheckResolvedDebugInformation = nil
+				}
+
 				testutil.RequireProtoEqual(t, tc.expectedError, errors[0], "mismatch on errors")
 			} else {
 				require.Equal(0, len(response.GetOperationsResults().Results[0].GetAssertionsResult().ValidationErrors), "Failed assertion", response.GetOperationsResults().Results[0].GetAssertionsResult().ValidationErrors)

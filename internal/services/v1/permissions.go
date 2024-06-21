@@ -7,14 +7,11 @@ import (
 	"spicedb/pkg/datastore"
 
 	"github.com/authzed/authzed-go/pkg/requestmeta"
-	"github.com/authzed/authzed-go/pkg/responsemeta"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 	"github.com/jzelinskie/stringz"
-	"golang.org/x/sync/errgroup"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -25,55 +22,68 @@ import (
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/middleware/usagemetrics"
 	"spicedb/internal/namespace"
+	"spicedb/internal/services/shared"
+	"spicedb/pkg/cursor"
+	"spicedb/pkg/datastore"
 	"spicedb/pkg/middleware/consistency"
 	core "spicedb/pkg/proto/core/v1"
 	dispatch "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/tuple"
 )
 
+func (ps *permissionServer) rewriteError(ctx context.Context, err error) error {
+	return shared.RewriteError(ctx, err, &shared.ConfigForErrors{
+		MaximumAPIDepth: ps.config.MaximumAPIDepth,
+	})
+}
+
+func (ps *permissionServer) rewriteErrorWithOptionalDebugTrace(ctx context.Context, err error, debugTrace *v1.DebugInformation) error {
+	return shared.RewriteError(ctx, err, &shared.ConfigForErrors{
+		MaximumAPIDepth: ps.config.MaximumAPIDepth,
+		DebugTrace:      debugTrace,
+	})
+}
+
 func (ps *permissionServer) CheckPermission(ctx context.Context, req *v1.CheckPermissionRequest) (*v1.CheckPermissionResponse, error) {
 	atRevision, checkedAt, err := consistency.RevisionFromContext(ctx)
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteError(ctx, err)
 	}
 
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(atRevision)
 
 	caveatContext, err := GetCaveatContext(ctx, req.Context, ps.config.MaxCaveatContextSize)
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteError(ctx, err)
 	}
 
-	// Perform our preflight checks in parallel
-	errG, checksCtx := errgroup.WithContext(ctx)
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			checksCtx,
-			req.Resource.ObjectType,
-			req.Permission,
-			false,
-			ds,
-		)
-	})
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			checksCtx,
-			req.Subject.Object.ObjectType,
-			normalizeSubjectRelation(req.Subject),
-			true,
-			ds,
-		)
-	})
-	if err := errG.Wait(); err != nil {
-		return nil, rewriteError(ctx, err)
+	if err := namespace.CheckNamespaceAndRelations(ctx,
+		[]namespace.TypeAndRelationToCheck{
+			{
+				NamespaceName: req.Resource.ObjectType,
+				RelationName:  req.Permission,
+				AllowEllipsis: false,
+			},
+			{
+				NamespaceName: req.Subject.Object.ObjectType,
+				RelationName:  normalizeSubjectRelation(req.Subject),
+				AllowEllipsis: true,
+			},
+		}, ds); err != nil {
+		return nil, ps.rewriteError(ctx, err)
 	}
 
 	debugOption := computed.NoDebugging
+
 	if md, ok := metadata.FromIncomingContext(ctx); ok {
 		_, isDebuggingEnabled := md[string(requestmeta.RequestDebugInformation)]
 		if isDebuggingEnabled {
 			debugOption = computed.BasicDebuggingEnabled
 		}
+	}
+
+	if req.WithTracing {
+		debugOption = computed.BasicDebuggingEnabled
 	}
 
 	cr, metadata, err := computed.ComputeCheck(ctx, ps.dispatch,
@@ -96,31 +106,31 @@ func (ps *permissionServer) CheckPermission(ctx context.Context, req *v1.CheckPe
 	)
 	usagemetrics.SetInContext(ctx, metadata)
 
+	var debugTrace *v1.DebugInformation
 	if debugOption != computed.NoDebugging && metadata.DebugInfo != nil {
-		// Convert the dispatch debug information into API debug information and marshal into
-		// the footer.
+		// Convert the dispatch debug information into API debug information.
 		converted, cerr := ConvertCheckDispatchDebugInformation(ctx, caveatContext, metadata, ds)
 		if cerr != nil {
-			return nil, rewriteError(ctx, cerr)
+			return nil, ps.rewriteError(ctx, cerr)
 		}
-
-		marshaled, merr := protojson.Marshal(converted)
-		if merr != nil {
-			return nil, rewriteError(ctx, merr)
-		}
-
-		serr := responsemeta.SetResponseTrailerMetadata(ctx, map[responsemeta.ResponseMetadataTrailerKey]string{
-			responsemeta.DebugInformation: string(marshaled),
-		})
-		if serr != nil {
-			return nil, rewriteError(ctx, serr)
-		}
+		debugTrace = converted
 	}
 
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteErrorWithOptionalDebugTrace(ctx, err, debugTrace)
 	}
 
+	permissionship, partialCaveat := checkResultToAPITypes(cr)
+
+	return &v1.CheckPermissionResponse{
+		CheckedAt:         checkedAt,
+		Permissionship:    permissionship,
+		PartialCaveatInfo: partialCaveat,
+		DebugTrace:        debugTrace,
+	}, nil
+}
+
+func checkResultToAPITypes(cr *dispatch.ResourceCheckResult) (v1.CheckPermissionResponse_Permissionship, *v1.PartialCaveatInfo) {
 	var partialCaveat *v1.PartialCaveatInfo
 	permissionship := v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION
 	if cr.Membership == dispatch.ResourceCheckResult_MEMBER {
@@ -131,31 +141,76 @@ func (ps *permissionServer) CheckPermission(ctx context.Context, req *v1.CheckPe
 			MissingRequiredContext: cr.MissingExprFields,
 		}
 	}
+	return permissionship, partialCaveat
+}
 
-	return &v1.CheckPermissionResponse{
-		CheckedAt:         checkedAt,
-		Permissionship:    permissionship,
-		PartialCaveatInfo: partialCaveat,
-	}, nil
+func (ps *permissionServer) CheckBulkPermissions(ctx context.Context, req *v1.CheckBulkPermissionsRequest) (*v1.CheckBulkPermissionsResponse, error) {
+	res, err := ps.bulkChecker.checkBulkPermissions(ctx, req)
+	if err != nil {
+		return nil, ps.rewriteError(ctx, err)
+	}
+
+	return res, nil
+}
+
+func pairItemFromCheckResult(checkResult *dispatch.ResourceCheckResult) *v1.CheckBulkPermissionsPair_Item {
+	permissionship, partialCaveat := checkResultToAPITypes(checkResult)
+	return &v1.CheckBulkPermissionsPair_Item{
+		Item: &v1.CheckBulkPermissionsResponseItem{
+			Permissionship:    permissionship,
+			PartialCaveatInfo: partialCaveat,
+		},
+	}
+}
+
+func requestItemFromResourceAndParameters(params *computed.CheckParameters, resourceID string) (*v1.CheckBulkPermissionsRequestItem, error) {
+	item := &v1.CheckBulkPermissionsRequestItem{
+		Resource: &v1.ObjectReference{
+			ObjectType: params.ResourceType.Namespace,
+			ObjectId:   resourceID,
+		},
+		Permission: params.ResourceType.Relation,
+		Subject: &v1.SubjectReference{
+			Object: &v1.ObjectReference{
+				ObjectType: params.Subject.Namespace,
+				ObjectId:   params.Subject.ObjectId,
+			},
+			OptionalRelation: denormalizeSubjectRelation(params.Subject.Relation),
+		},
+	}
+	if len(params.CaveatContext) > 0 {
+		var err error
+		item.Context, err = structpb.NewStruct(params.CaveatContext)
+		if err != nil {
+			return nil, fmt.Errorf("caveat context wasn't properly validated: %w", err)
+		}
+	}
+	return item, nil
 }
 
 func (ps *permissionServer) ExpandPermissionTree(ctx context.Context, req *v1.ExpandPermissionTreeRequest) (*v1.ExpandPermissionTreeResponse, error) {
 	atRevision, expandedAt, err := consistency.RevisionFromContext(ctx)
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteError(ctx, err)
 	}
 
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(atRevision)
 
 	err = namespace.CheckNamespaceAndRelation(ctx, req.Resource.ObjectType, req.Permission, false, ds)
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteError(ctx, err)
+	}
+
+	bf, err := dispatch.NewTraversalBloomFilter(uint(ps.config.MaximumAPIDepth))
+	if err != nil {
+		return nil, err
 	}
 
 	resp, err := ps.dispatch.DispatchExpand(ctx, &dispatch.DispatchExpandRequest{
 		Metadata: &dispatch.ResolverMeta{
 			AtRevision:     atRevision.String(),
 			DepthRemaining: ps.config.MaximumAPIDepth,
+			TraversalBloom: bf,
 		},
 		ResourceAndRelation: &core.ObjectAndRelation{
 			Namespace: req.Resource.ObjectType,
@@ -166,7 +221,7 @@ func (ps *permissionServer) ExpandPermissionTree(ctx context.Context, req *v1.Ex
 	})
 	usagemetrics.SetInContext(ctx, resp.Metadata)
 	if err != nil {
-		return nil, rewriteError(ctx, err)
+		return nil, ps.rewriteError(ctx, err)
 	}
 
 	// TODO(jschorr): Change to either using shared interfaces for nodes, or switch the internal
@@ -323,62 +378,66 @@ func TranslateExpansionTree(node *core.RelationTupleTreeNode) *v1.PermissionRela
 }
 
 func (ps *permissionServer) LookupResources(req *v1.LookupResourcesRequest, resp v1.PermissionsService_LookupResourcesServer) error {
+	if req.OptionalLimit > 0 && req.OptionalLimit > ps.config.MaxLookupResourcesLimit {
+		return ps.rewriteError(resp.Context(), NewExceedsMaximumLimitErr(uint64(req.OptionalLimit), uint64(ps.config.MaxLookupResourcesLimit)))
+	}
+
 	ctx := resp.Context()
+
 	atRevision, revisionReadAt, err := consistency.RevisionFromContext(ctx)
 	if err != nil {
-		return rewriteError(ctx, err)
+		return ps.rewriteError(ctx, err)
 	}
 
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(atRevision)
 
-	// Perform our preflight checks in parallel
-	errG, checksCtx := errgroup.WithContext(ctx)
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			checksCtx,
-			req.Subject.Object.ObjectType,
-			normalizeSubjectRelation(req.Subject),
-			true,
-			ds,
-		)
-	})
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			ctx,
-			req.ResourceObjectType,
-			req.Permission,
-			false,
-			ds,
-		)
-	})
-	if err := errG.Wait(); err != nil {
-		return rewriteError(ctx, err)
+	if err := namespace.CheckNamespaceAndRelations(ctx,
+		[]namespace.TypeAndRelationToCheck{
+			{
+				NamespaceName: req.ResourceObjectType,
+				RelationName:  req.Permission,
+				AllowEllipsis: false,
+			},
+			{
+				NamespaceName: req.Subject.Object.ObjectType,
+				RelationName:  normalizeSubjectRelation(req.Subject),
+				AllowEllipsis: true,
+			},
+		}, ds); err != nil {
+		return ps.rewriteError(ctx, err)
 	}
 
-	// TODO(jschorr): Change the internal dispatched lookup to also be streamed.
-	lookupResp, err := ps.dispatch.DispatchLookup(ctx, &dispatch.DispatchLookupRequest{
-		Metadata: &dispatch.ResolverMeta{
-			AtRevision:     atRevision.String(),
-			DepthRemaining: ps.config.MaximumAPIDepth,
-		},
-		ObjectRelation: &core.RelationReference{
-			Namespace: req.ResourceObjectType,
-			Relation:  req.Permission,
-		},
-		Subject: &core.ObjectAndRelation{
-			Namespace: req.Subject.Object.ObjectType,
-			ObjectId:  req.Subject.Object.ObjectId,
-			Relation:  normalizeSubjectRelation(req.Subject),
-		},
-		Context: req.Context,
-		Limit:   ^uint32(0), // Set no limit for now
-	})
-	usagemetrics.SetInContext(ctx, lookupResp.Metadata)
+	respMetadata := &dispatch.ResponseMeta{
+		DispatchCount:       1,
+		CachedDispatchCount: 0,
+		DepthRequired:       1,
+		DebugInfo:           nil,
+	}
+	usagemetrics.SetInContext(ctx, respMetadata)
+
+	var currentCursor *dispatch.Cursor
+
+	lrRequestHash, err := computeLRRequestHash(req)
 	if err != nil {
-		return rewriteError(ctx, err)
+		return ps.rewriteError(ctx, err)
 	}
 
-	for _, found := range lookupResp.ResolvedResources {
+	if req.OptionalCursor != nil {
+		decodedCursor, err := cursor.DecodeToDispatchCursor(req.OptionalCursor, lrRequestHash)
+		if err != nil {
+			return ps.rewriteError(ctx, err)
+		}
+		currentCursor = decodedCursor
+	}
+
+	alreadyPublishedPermissionedResourceIds := map[string]struct{}{}
+
+	stream := dispatchpkg.NewHandlingDispatchStream(ctx, func(result *dispatch.DispatchLookupResourcesResponse) error {
+		found := result.ResolvedResource
+
+		dispatchpkg.AddResponseMetadata(respMetadata, result.Metadata)
+		currentCursor = result.AfterResponseCursor
+
 		var partial *v1.PartialCaveatInfo
 		permissionship := v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION
 		if found.Permissionship == dispatch.ResolvedResource_CONDITIONALLY_HAS_PERMISSION {
@@ -386,57 +445,95 @@ func (ps *permissionServer) LookupResources(req *v1.LookupResourcesRequest, resp
 			partial = &v1.PartialCaveatInfo{
 				MissingRequiredContext: found.MissingRequiredContext,
 			}
+		} else if req.OptionalLimit == 0 {
+			if _, ok := alreadyPublishedPermissionedResourceIds[found.ResourceId]; ok {
+				// Skip publishing the duplicate.
+				return nil
+			}
+
+			alreadyPublishedPermissionedResourceIds[found.ResourceId] = struct{}{}
 		}
 
-		err := resp.Send(&v1.LookupResourcesResponse{
+		encodedCursor, err := cursor.EncodeFromDispatchCursor(result.AfterResponseCursor, lrRequestHash, atRevision)
+		if err != nil {
+			return ps.rewriteError(ctx, err)
+		}
+
+		err = resp.Send(&v1.LookupResourcesResponse{
 			LookedUpAt:        revisionReadAt,
 			ResourceObjectId:  found.ResourceId,
 			Permissionship:    permissionship,
 			PartialCaveatInfo: partial,
+			AfterResultCursor: encodedCursor,
 		})
 		if err != nil {
 			return err
 		}
+		return nil
+	})
+
+	bf, err := dispatch.NewTraversalBloomFilter(uint(ps.config.MaximumAPIDepth))
+	if err != nil {
+		return err
 	}
+
+	err = ps.dispatch.DispatchLookupResources(
+		&dispatch.DispatchLookupResourcesRequest{
+			Metadata: &dispatch.ResolverMeta{
+				AtRevision:     atRevision.String(),
+				DepthRemaining: ps.config.MaximumAPIDepth,
+				TraversalBloom: bf,
+			},
+			ObjectRelation: &core.RelationReference{
+				Namespace: req.ResourceObjectType,
+				Relation:  req.Permission,
+			},
+			Subject: &core.ObjectAndRelation{
+				Namespace: req.Subject.Object.ObjectType,
+				ObjectId:  req.Subject.Object.ObjectId,
+				Relation:  normalizeSubjectRelation(req.Subject),
+			},
+			Context:        req.Context,
+			OptionalCursor: currentCursor,
+			OptionalLimit:  req.OptionalLimit,
+		},
+		stream)
+	if err != nil {
+		return ps.rewriteError(ctx, err)
+	}
+
 	return nil
 }
 
 func (ps *permissionServer) LookupSubjects(req *v1.LookupSubjectsRequest, resp v1.PermissionsService_LookupSubjectsServer) error {
 	ctx := resp.Context()
+
 	atRevision, revisionReadAt, err := consistency.RevisionFromContext(ctx)
 	if err != nil {
-		return rewriteError(ctx, err)
+		return ps.rewriteError(ctx, err)
 	}
 
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(atRevision)
 
 	caveatContext, err := GetCaveatContext(ctx, req.Context, ps.config.MaxCaveatContextSize)
 	if err != nil {
-		return rewriteError(ctx, err)
+		return ps.rewriteError(ctx, err)
 	}
 
-	// Perform our preflight checks in parallel
-	errG, checksCtx := errgroup.WithContext(ctx)
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			checksCtx,
-			req.Resource.ObjectType,
-			req.Permission,
-			false,
-			ds,
-		)
-	})
-	errG.Go(func() error {
-		return namespace.CheckNamespaceAndRelation(
-			ctx,
-			req.SubjectObjectType,
-			stringz.DefaultEmpty(req.OptionalSubjectRelation, tuple.Ellipsis),
-			true,
-			ds,
-		)
-	})
-	if err := errG.Wait(); err != nil {
-		return rewriteError(ctx, err)
+	if err := namespace.CheckNamespaceAndRelations(ctx,
+		[]namespace.TypeAndRelationToCheck{
+			{
+				NamespaceName: req.Resource.ObjectType,
+				RelationName:  req.Permission,
+				AllowEllipsis: false,
+			},
+			{
+				NamespaceName: req.SubjectObjectType,
+				RelationName:  stringz.DefaultEmpty(req.OptionalSubjectRelation, tuple.Ellipsis),
+				AllowEllipsis: true,
+			},
+		}, ds); err != nil {
+		return ps.rewriteError(ctx, err)
 	}
 
 	respMetadata := &dispatch.ResponseMeta{
@@ -499,11 +596,17 @@ func (ps *permissionServer) LookupSubjects(req *v1.LookupSubjectsRequest, resp v
 		return nil
 	})
 
+	bf, err := dispatch.NewTraversalBloomFilter(uint(ps.config.MaximumAPIDepth))
+	if err != nil {
+		return err
+	}
+
 	err = ps.dispatch.DispatchLookupSubjects(
 		&dispatch.DispatchLookupSubjectsRequest{
 			Metadata: &dispatch.ResolverMeta{
 				AtRevision:     atRevision.String(),
 				DepthRemaining: ps.config.MaximumAPIDepth,
+				TraversalBloom: bf,
 			},
 			ResourceRelation: &core.RelationReference{
 				Namespace: req.Resource.ObjectType,
@@ -517,7 +620,7 @@ func (ps *permissionServer) LookupSubjects(req *v1.LookupSubjectsRequest, resp v
 		},
 		stream)
 	if err != nil {
-		return rewriteError(ctx, err)
+		return ps.rewriteError(ctx, err)
 	}
 
 	return nil
@@ -572,7 +675,7 @@ func GetCaveatContext(ctx context.Context, caveatCtx *structpb.Struct, maxCaveat
 	var caveatContext map[string]any
 	if caveatCtx != nil {
 		if size := proto.Size(caveatCtx); maxCaveatContextSize > 0 && size > maxCaveatContextSize {
-			return nil, rewriteError(
+			return nil, shared.RewriteError(
 				ctx,
 				status.Errorf(
 					codes.InvalidArgument,
@@ -580,6 +683,7 @@ func GetCaveatContext(ctx context.Context, caveatCtx *structpb.Struct, maxCaveat
 					maxCaveatContextSize,
 					size,
 				),
+				nil,
 			)
 		}
 		caveatContext = caveatCtx.AsMap()

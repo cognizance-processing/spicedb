@@ -2,6 +2,8 @@ package tuple
 
 import (
 	core "spicedb/pkg/proto/core/v1"
+
+	"github.com/samber/lo"
 )
 
 // ONRByTypeSet is a set of ObjectAndRelation's, grouped by namespace+relation.
@@ -34,7 +36,7 @@ func (s *ONRByTypeSet) ForEachType(handler func(rr *core.RelationReference, obje
 		handler(&core.RelationReference{
 			Namespace: ns,
 			Relation:  rel,
-		}, objectIds)
+		}, lo.Uniq(objectIds))
 	}
 }
 
@@ -54,7 +56,7 @@ func (s *ONRByTypeSet) Map(mapper func(rr *core.RelationReference) (*core.Relati
 		if updatedType == nil {
 			continue
 		}
-		mapped.byType[JoinRelRef(updatedType.Namespace, updatedType.Relation)] = objectIds
+		mapped.byType[JoinRelRef(updatedType.Namespace, updatedType.Relation)] = lo.Uniq(objectIds)
 	}
 	return mapped, nil
 }
@@ -64,7 +66,17 @@ func (s *ONRByTypeSet) IsEmpty() bool {
 	return len(s.byType) == 0
 }
 
-// Len returns the number of keys in the set.
-func (s *ONRByTypeSet) Len() int {
+// KeyLen returns the number of keys in the set.
+func (s *ONRByTypeSet) KeyLen() int {
 	return len(s.byType)
+}
+
+// ValueLen returns the number of values in the set.
+func (s *ONRByTypeSet) ValueLen() int {
+	var total int
+	for _, vals := range s.byType {
+		total += len(vals)
+	}
+
+	return total
 }

@@ -8,7 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/datastore/options"
 	"spicedb/pkg/tuple"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestPopulateFromFiles(t *testing.T) {
@@ -136,4 +141,27 @@ func TestPopulateFromFiles(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPopulationChunking(t *testing.T) {
+	require := require.New(t)
+
+	ds, err := memdb.NewMemdbDatastore(0, 0, 0)
+	require.NoError(err)
+
+	cs := txCountingDatastore{delegate: ds}
+	_, _, err = PopulateFromFiles(context.Background(), &cs, []string{"testdata/requires_chunking.yaml"})
+	require.NoError(err)
+	require.Equal(3, cs.count)
+}
+
+type txCountingDatastore struct {
+	proxy_test.MockDatastore
+	count    int
+	delegate datastore.Datastore
+}
+
+func (c *txCountingDatastore) ReadWriteTx(ctx context.Context, userFunc datastore.TxUserFunc, option ...options.RWTOptionsOption) (datastore.Revision, error) {
+	c.count++
+	return c.delegate.ReadWriteTx(ctx, userFunc, option...)
 }

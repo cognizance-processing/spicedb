@@ -7,6 +7,13 @@ import (
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/tuple"
 	"spicedb/pkg/validationfile/blocks"
+
+	v1t "github.com/authzed/authzed-go/proto/authzed/api/v1"
+
+	devinterface "spicedb/pkg/proto/developer/v1"
+	v1 "spicedb/pkg/proto/dispatch/v1"
+	"spicedb/pkg/tuple"
+	"spicedb/pkg/validationfile/blocks"
 )
 
 const maxDispatchDepth = 25
@@ -38,7 +45,7 @@ func runAssertions(devContext *DevContext, assertions []blocks.Assertion, expect
 	var failures []*devinterface.DeveloperError
 
 	for _, assertion := range assertions {
-		tpl := tuple.MustFromRelationship(assertion.Relationship)
+		tpl := tuple.MustFromRelationship[*v1t.ObjectReference, *v1t.SubjectReference, *v1t.ContextualizedCaveat](assertion.Relationship)
 
 		if tpl.Caveat != nil {
 			failures = append(failures, &devinterface.DeveloperError{
@@ -70,12 +77,14 @@ func runAssertions(devContext *DevContext, assertions []blocks.Assertion, expect
 			}
 		} else if cr.Permissionship != expected {
 			failures = append(failures, &devinterface.DeveloperError{
-				Message: fmt.Sprintf(fmtString, assertion.RelationshipWithContextString),
-				Source:  devinterface.DeveloperError_ASSERTION,
-				Kind:    devinterface.DeveloperError_ASSERTION_FAILED,
-				Context: assertion.RelationshipWithContextString,
-				Line:    uint32(assertion.SourcePosition.LineNumber),
-				Column:  uint32(assertion.SourcePosition.ColumnPosition),
+				Message:                       fmt.Sprintf(fmtString, assertion.RelationshipWithContextString),
+				Source:                        devinterface.DeveloperError_ASSERTION,
+				Kind:                          devinterface.DeveloperError_ASSERTION_FAILED,
+				Context:                       assertion.RelationshipWithContextString,
+				Line:                          uint32(assertion.SourcePosition.LineNumber),
+				Column:                        uint32(assertion.SourcePosition.ColumnPosition),
+				CheckDebugInformation:         cr.DispatchDebugInfo,
+				CheckResolvedDebugInformation: cr.V1DebugInfo,
 			})
 		}
 	}

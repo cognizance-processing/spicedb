@@ -4,23 +4,31 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/samber/lo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+	"google.golang.org/protobuf/types/known/durationpb"
 
 	"spicedb/internal/dispatch"
 	log "spicedb/internal/logging"
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/namespace"
+	"spicedb/internal/taskrunner"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
+	"spicedb/pkg/genutil/slicez"
 	nspkg "spicedb/pkg/namespace"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	iv1 "spicedb/pkg/proto/impl/v1"
 	"spicedb/pkg/spiceerrors"
 	"spicedb/pkg/tuple"
-	"spicedb/pkg/util"
 )
+
+var tracer = otel.Tracer("spicedb/internal/graph/check")
 
 var dispatchChunkCountHistogram = prometheus.NewHistogram(prometheus.HistogramOpts{
 	Name:    "spicedb_check_dispatch_chunk_count",
@@ -86,6 +94,12 @@ type currentRequestContext struct {
 
 // Check performs a check request with the provided request and context
 func (cc *ConcurrentChecker) Check(ctx context.Context, req ValidatedCheckRequest, relation *core.Relation) (*v1.DispatchCheckResponse, error) {
+	var startTime *time.Time
+	if req.Debug != v1.DispatchCheckRequest_NO_DEBUG {
+		now := time.Now()
+		startTime = &now
+	}
+
 	resolved := cc.checkInternal(ctx, req, relation)
 	resolved.Resp.Metadata = addCallToResponseMetadata(resolved.Resp.Metadata)
 	if req.Debug == v1.DispatchCheckRequest_NO_DEBUG {
@@ -101,6 +115,7 @@ func (cc *ConcurrentChecker) Check(ctx context.Context, req ValidatedCheckReques
 	}
 
 	debugInfo.Check.Request = req.DispatchCheckRequest
+	debugInfo.Check.Duration = durationpb.New(time.Since(*startTime))
 
 	if nspkg.GetRelationKind(relation) == iv1.RelationMetadata_PERMISSION {
 		debugInfo.Check.ResourceRelationType = v1.CheckDebugTrace_PERMISSION
@@ -141,8 +156,11 @@ func (cc *ConcurrentChecker) checkInternal(ctx context.Context, req ValidatedChe
 
 	// Ensure that we are not performing a check for a wildcard as the subject.
 	if req.Subject.ObjectId == tuple.PublicWildcard {
-		return checkResultError(NewErrInvalidArgument(errors.New("cannot perform check on wildcard")), emptyMetadata)
+		return checkResultError(NewWildcardNotAllowedErr("cannot perform check on wildcard subject", "subject.object_id"), emptyMetadata)
 	}
+
+	// Deduplicate any incoming resource IDs.
+	resourceIds := lo.Uniq(req.ResourceIds)
 
 	// Filter the incoming resource IDs for any which match the subject directly. For example, if we receive
 	// a check for resource `user:{tom, fred, sarah}#...` and a subject of `user:sarah#...`, then we know
@@ -150,7 +168,7 @@ func (cc *ConcurrentChecker) checkInternal(ctx context.Context, req ValidatedChe
 	//
 	// If the filtering results in no further resource IDs to check, or a result is found and a single
 	// result is allowed, we terminate early.
-	membershipSet, filteredResourcesIds := filterForFoundMemberResource(req.ResourceRelation, req.ResourceIds, req.Subject)
+	membershipSet, filteredResourcesIds := filterForFoundMemberResource(req.ResourceRelation, resourceIds, req.Subject)
 	if membershipSet.HasDeterminedMember() && req.DispatchCheckRequest.ResultsSetting == v1.DispatchCheckRequest_ALLOW_SINGLE_RESULT {
 		return checkResultsForMembership(membershipSet, emptyMetadata)
 	}
@@ -184,23 +202,14 @@ func (cc *ConcurrentChecker) checkInternal(ctx context.Context, req ValidatedChe
 	return combineResultWithFoundResources(cc.checkUsersetRewrite(ctx, crc, relation.UsersetRewrite), membershipSet)
 }
 
-func onrEqual(lhs, rhs *core.ObjectAndRelation) bool {
-	// Properties are sorted by highest to lowest cardinality to optimize for short-circuiting.
-	return lhs.ObjectId == rhs.ObjectId && lhs.Relation == rhs.Relation && lhs.Namespace == rhs.Namespace
-}
-
-func onrEqualOrWildcard(tpl, target *core.ObjectAndRelation) bool {
-	return onrEqual(tpl, target) || (tpl.Namespace == target.Namespace && tpl.ObjectId == tuple.PublicWildcard)
-}
-
 type directDispatch struct {
 	resourceType *core.RelationReference
 	resourceIds  []string
 }
 
 func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequestContext, relation *core.Relation) CheckResult {
-	log.Ctx(ctx).Trace().Object("direct", crc.parentReq).Send()
-	ds := datastoremw.MustFromContext(ctx).SnapshotReader(crc.parentReq.Revision)
+	ctx, span := tracer.Start(ctx, "checkDirect")
+	defer span.End()
 
 	// Build a filter for finding the direct relationships for the check. There are three
 	// classes of relationships to be found:
@@ -211,6 +220,18 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 	hasNonTerminals := false
 	hasDirectSubject := false
 	hasWildcardSubject := false
+
+	defer func() {
+		if hasNonTerminals {
+			span.SetName("non terminal")
+		} else if hasDirectSubject {
+			span.SetName("terminal")
+		} else {
+			span.SetName("wildcard subject")
+		}
+	}()
+	log.Ctx(ctx).Trace().Object("direct", crc.parentReq).Send()
+	ds := datastoremw.MustFromContext(ctx).SnapshotReader(crc.parentReq.Revision)
 
 	for _, allowedDirectRelation := range relation.GetTypeInformation().GetAllowedDirectRelations() {
 		// If the namespace of the allowed direct relation matches the subject type, there are two
@@ -264,7 +285,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 		}
 
 		filter := datastore.RelationshipsFilter{
-			ResourceType:              crc.parentReq.ResourceRelation.Namespace,
+			OptionalResourceType:      crc.parentReq.ResourceRelation.Namespace,
 			OptionalResourceIds:       crc.filteredResourceIDs,
 			OptionalResourceRelation:  crc.parentReq.ResourceRelation.Relation,
 			OptionalSubjectsSelectors: subjectSelectors,
@@ -285,7 +306,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 
 			// If the subject of the relationship matches the target subject, then we've found
 			// a result.
-			if !onrEqualOrWildcard(tpl.Subject, crc.parentReq.Subject) {
+			if !tuple.OnrEqualOrWildcard(tpl.Subject, crc.parentReq.Subject) {
 				tplString, err := tuple.String(tpl)
 				if err != nil {
 					return checkResultError(err, emptyMetadata)
@@ -325,7 +346,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 
 	// Otherwise, for any remaining resource IDs, query for redispatch.
 	filter := datastore.RelationshipsFilter{
-		ResourceType:             crc.parentReq.ResourceRelation.Namespace,
+		OptionalResourceType:     crc.parentReq.ResourceRelation.Namespace,
 		OptionalResourceIds:      furtherFilteredResourceIDs,
 		OptionalResourceRelation: crc.parentReq.ResourceRelation.Relation,
 		OptionalSubjectsSelectors: []datastore.SubjectsSelector{
@@ -344,7 +365,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 
 	// Find the subjects over which to dispatch.
 	subjectsToDispatch := tuple.NewONRByTypeSet()
-	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
+	relationshipsBySubjectONR := mapz.NewMultiMap[string, *core.RelationTuple]()
 
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
@@ -362,10 +383,13 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 	it.Close()
 
 	// Convert the subjects into batched requests.
-	toDispatch := make([]directDispatch, 0, subjectsToDispatch.Len())
+	// To simplify the logic, +1 is added to account for the situation where
+	// the number of elements is less than the chunk size, and spare us some annoying code.
+	expectedNumberOfChunks := subjectsToDispatch.ValueLen()/int(crc.maxDispatchCount) + 1
+	toDispatch := make([]directDispatch, 0, expectedNumberOfChunks)
 	subjectsToDispatch.ForEachType(func(rr *core.RelationReference, resourceIds []string) {
 		chunkCount := 0.0
-		util.ForEachChunk(resourceIds, crc.maxDispatchCount, func(resourceIdChunk []string) {
+		slicez.ForEachChunk(resourceIds, crc.maxDispatchCount, func(resourceIdChunk []string) {
 			chunkCount++
 			toDispatch = append(toDispatch, directDispatch{
 				resourceType: rr,
@@ -389,6 +413,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 			},
 			crc.parentReq.Revision,
 		})
+
 		if childResult.Err != nil {
 			return childResult
 		}
@@ -399,7 +424,7 @@ func (cc *ConcurrentChecker) checkDirect(ctx context.Context, crc currentRequest
 	return combineResultWithFoundResources(result, foundResources)
 }
 
-func mapFoundResources(result CheckResult, resourceType *core.RelationReference, relationshipsBySubjectONR *util.MultiMap[string, *core.RelationTuple]) CheckResult {
+func mapFoundResources(result CheckResult, resourceType *core.RelationReference, relationshipsBySubjectONR *mapz.MultiMap[string, *core.RelationTuple]) CheckResult {
 	// Map any resources found to the parent resource IDs.
 	membershipSet := NewMembershipSet()
 	for foundResourceID, result := range result.Resp.ResultsByResourceId {
@@ -425,10 +450,19 @@ func mapFoundResources(result CheckResult, resourceType *core.RelationReference,
 func (cc *ConcurrentChecker) checkUsersetRewrite(ctx context.Context, crc currentRequestContext, rewrite *core.UsersetRewrite) CheckResult {
 	switch rw := rewrite.RewriteOperation.(type) {
 	case *core.UsersetRewrite_Union:
+		if len(rw.Union.Child) > 1 {
+			var span trace.Span
+			ctx, span = tracer.Start(ctx, "+")
+			defer span.End()
+		}
 		return union(ctx, crc, rw.Union.Child, cc.runSetOperation, cc.concurrencyLimit)
 	case *core.UsersetRewrite_Intersection:
+		ctx, span := tracer.Start(ctx, "&")
+		defer span.End()
 		return all(ctx, crc, rw.Intersection.Child, cc.runSetOperation, cc.concurrencyLimit)
 	case *core.UsersetRewrite_Exclusion:
+		ctx, span := tracer.Start(ctx, "-")
+		defer span.End()
 		return difference(ctx, crc, rw.Exclusion.Child, cc.runSetOperation, cc.concurrencyLimit)
 	default:
 		return checkResultError(fmt.Errorf("unknown userset rewrite operator"), emptyMetadata)
@@ -459,6 +493,9 @@ func (cc *ConcurrentChecker) runSetOperation(ctx context.Context, crc currentReq
 }
 
 func (cc *ConcurrentChecker) checkComputedUserset(ctx context.Context, crc currentRequestContext, cu *core.ComputedUserset, rr *core.RelationReference, resourceIds []string) CheckResult {
+	ctx, span := tracer.Start(ctx, cu.Relation)
+	defer span.End()
+
 	var startNamespace string
 	var targetResourceIds []string
 	if cu.Object == core.ComputedUserset_TUPLE_USERSET_OBJECT {
@@ -540,10 +577,13 @@ func removeIndexFromSlice[T any](s []T, index int) []T {
 }
 
 func (cc *ConcurrentChecker) checkTupleToUserset(ctx context.Context, crc currentRequestContext, ttu *core.TupleToUserset) CheckResult {
+	ctx, span := tracer.Start(ctx, ttu.Tupleset.Relation+"->"+ttu.ComputedUserset.Relation)
+	defer span.End()
+
 	log.Ctx(ctx).Trace().Object("ttu", crc.parentReq).Send()
 	ds := datastoremw.MustFromContext(ctx).SnapshotReader(crc.parentReq.Revision)
 	it, err := ds.QueryRelationships(ctx, datastore.RelationshipsFilter{
-		ResourceType:             crc.parentReq.ResourceRelation.Namespace,
+		OptionalResourceType:     crc.parentReq.ResourceRelation.Namespace,
 		OptionalResourceIds:      crc.filteredResourceIDs,
 		OptionalResourceRelation: ttu.Tupleset.Relation,
 	})
@@ -553,7 +593,7 @@ func (cc *ConcurrentChecker) checkTupleToUserset(ctx context.Context, crc curren
 	defer it.Close()
 
 	subjectsToDispatch := tuple.NewONRByTypeSet()
-	relationshipsBySubjectONR := util.NewMultiMap[string, *core.RelationTuple]()
+	relationshipsBySubjectONR := mapz.NewMultiMap[string, *core.RelationTuple]()
 	for tpl := it.Next(); tpl != nil; tpl = it.Next() {
 		if it.Err() != nil {
 			return checkResultError(NewCheckFailureErr(it.Err()), emptyMetadata)
@@ -565,10 +605,13 @@ func (cc *ConcurrentChecker) checkTupleToUserset(ctx context.Context, crc curren
 	it.Close()
 
 	// Convert the subjects into batched requests.
-	toDispatch := make([]directDispatch, 0, subjectsToDispatch.Len())
+	// To simplify the logic, +1 is added to account for the situation where
+	// the number of elements is less than the chunk size, and spare us some annoying code.
+	expectedNumberOfChunks := subjectsToDispatch.ValueLen()/int(crc.maxDispatchCount) + 1
+	toDispatch := make([]directDispatch, 0, expectedNumberOfChunks)
 	subjectsToDispatch.ForEachType(func(rr *core.RelationReference, resourceIds []string) {
 		chunkCount := 0.0
-		util.ForEachChunk(resourceIds, crc.maxDispatchCount, func(resourceIdChunk []string) {
+		slicez.ForEachChunk(resourceIds, crc.maxDispatchCount, func(resourceIdChunk []string) {
 			chunkCount++
 			toDispatch = append(toDispatch, directDispatch{
 				resourceType: rr,
@@ -594,6 +637,17 @@ func (cc *ConcurrentChecker) checkTupleToUserset(ctx context.Context, crc curren
 	)
 }
 
+func withDistinctMetadata(result CheckResult) CheckResult {
+	// NOTE: This is necessary to ensure unique debug information on the request and that debug
+	// information from the child metadata is *not* copied over.
+	clonedResp := result.Resp.CloneVT()
+	clonedResp.Metadata = combineResponseMetadata(emptyMetadata, clonedResp.Metadata)
+	return CheckResult{
+		Resp: clonedResp,
+		Err:  result.Err,
+	}
+}
+
 // union returns whether any one of the lazy checks pass, and is used for union.
 func union[T any](
 	ctx context.Context,
@@ -606,16 +660,14 @@ func union[T any](
 		return noMembers()
 	}
 
+	if len(children) == 1 {
+		return withDistinctMetadata(handler(ctx, crc, children[0]))
+	}
+
 	resultChan := make(chan CheckResult, len(children))
 	childCtx, cancelFn := context.WithCancel(ctx)
-
-	dispatcherCleanup := dispatchAllAsync(childCtx, crc, children, handler, resultChan, concurrencyLimit)
-
-	defer func() {
-		cancelFn()
-		dispatcherCleanup()
-		close(resultChan)
-	}()
+	dispatchAllAsync(childCtx, crc, children, handler, resultChan, concurrencyLimit)
+	defer cancelFn()
 
 	responseMetadata := emptyMetadata
 	membershipSet := NewMembershipSet()
@@ -636,7 +688,7 @@ func union[T any](
 
 		case <-ctx.Done():
 			log.Ctx(ctx).Trace().Msg("anyCanceled")
-			return checkResultError(NewRequestCanceledErr(), responseMetadata)
+			return checkResultError(context.Canceled, responseMetadata)
 		}
 	}
 
@@ -655,22 +707,21 @@ func all[T any](
 		return noMembers()
 	}
 
+	if len(children) == 1 {
+		return withDistinctMetadata(handler(ctx, crc, children[0]))
+	}
+
 	responseMetadata := emptyMetadata
+
 	resultChan := make(chan CheckResult, len(children))
 	childCtx, cancelFn := context.WithCancel(ctx)
-
-	cleanupFunc := dispatchAllAsync(childCtx, currentRequestContext{
+	dispatchAllAsync(childCtx, currentRequestContext{
 		parentReq:           crc.parentReq,
 		filteredResourceIDs: crc.filteredResourceIDs,
 		resultsSetting:      v1.DispatchCheckRequest_REQUIRE_ALL_RESULTS,
 		maxDispatchCount:    crc.maxDispatchCount,
 	}, children, handler, resultChan, concurrencyLimit)
-
-	defer func() {
-		cancelFn()
-		cleanupFunc()
-		close(resultChan)
-	}()
+	defer cancelFn()
 
 	var membershipSet *MembershipSet
 	for i := 0; i < len(children); i++ {
@@ -692,7 +743,7 @@ func all[T any](
 				return noMembersWithMetadata(responseMetadata)
 			}
 		case <-ctx.Done():
-			return checkResultError(NewRequestCanceledErr(), responseMetadata)
+			return checkResultError(context.Canceled, responseMetadata)
 		}
 	}
 
@@ -716,32 +767,26 @@ func difference[T any](
 	}
 
 	childCtx, cancelFn := context.WithCancel(ctx)
-
 	baseChan := make(chan CheckResult, 1)
 	othersChan := make(chan CheckResult, len(children)-1)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
 	go func() {
-		result := handler(childCtx, crc, children[0])
+		result := handler(childCtx, currentRequestContext{
+			parentReq:           crc.parentReq,
+			filteredResourceIDs: crc.filteredResourceIDs,
+			resultsSetting:      v1.DispatchCheckRequest_REQUIRE_ALL_RESULTS,
+			maxDispatchCount:    crc.maxDispatchCount,
+		}, children[0])
 		baseChan <- result
-		wg.Done()
 	}()
 
-	cleanupFunc := dispatchAllAsync(childCtx, currentRequestContext{
+	dispatchAllAsync(childCtx, currentRequestContext{
 		parentReq:           crc.parentReq,
 		filteredResourceIDs: crc.filteredResourceIDs,
 		resultsSetting:      v1.DispatchCheckRequest_REQUIRE_ALL_RESULTS,
 		maxDispatchCount:    crc.maxDispatchCount,
 	}, children[1:], handler, othersChan, concurrencyLimit-1)
-
-	defer func() {
-		cancelFn()
-		cleanupFunc()
-		close(othersChan)
-		wg.Wait()
-		close(baseChan)
-	}()
+	defer cancelFn()
 
 	responseMetadata := emptyMetadata
 	membershipSet := NewMembershipSet()
@@ -761,7 +806,7 @@ func difference[T any](
 		}
 
 	case <-ctx.Done():
-		return checkResultError(NewRequestCanceledErr(), responseMetadata)
+		return checkResultError(context.Canceled, responseMetadata)
 	}
 
 	// Subtract the remaining sets.
@@ -780,7 +825,7 @@ func difference[T any](
 			}
 
 		case <-ctx.Done():
-			return checkResultError(NewRequestCanceledErr(), responseMetadata)
+			return checkResultError(context.Canceled, responseMetadata)
 		}
 	}
 
@@ -794,37 +839,18 @@ func dispatchAllAsync[T any](
 	handler func(ctx context.Context, crc currentRequestContext, child T) CheckResult,
 	resultChan chan<- CheckResult,
 	concurrencyLimit uint16,
-) func() {
-	sem := make(chan struct{}, concurrencyLimit)
-	var wg sync.WaitGroup
-
-	runHandler := func(child T) {
-		result := handler(ctx, crc, child)
-		resultChan <- result
-		<-sem
-		wg.Done()
+) {
+	tr := taskrunner.NewPreloadedTaskRunner(ctx, concurrencyLimit, len(children))
+	for _, currentChild := range children {
+		currentChild := currentChild
+		tr.Add(func(ctx context.Context) error {
+			result := handler(ctx, crc, currentChild)
+			resultChan <- result
+			return result.Err
+		})
 	}
 
-	wg.Add(1)
-	go func() {
-	dispatcher:
-		for _, currentChild := range children {
-			currentChild := currentChild
-			select {
-			case sem <- struct{}{}:
-				wg.Add(1)
-				go runHandler(currentChild)
-			case <-ctx.Done():
-				break dispatcher
-			}
-		}
-		wg.Done()
-	}()
-
-	return func() {
-		wg.Wait()
-		close(sem)
-	}
+	tr.Start()
 }
 
 func noMembers() CheckResult {

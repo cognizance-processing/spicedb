@@ -67,6 +67,9 @@ const (
 	SELECT minvalid.%[1]s, minvalid.%[5]s, pg_current_snapshot() FROM minvalid;`
 
 	queryCurrentSnapshot = `SELECT pg_current_snapshot();`
+
+	queryCurrentTransactionID = `SELECT pg_current_xact_id()::text::integer;`
+	queryLatestXID            = `SELECT max(xid) FROM relation_tuple_transaction;`
 )
 
 func (pgd *pgDatastore) optimizedRevisionFunc(ctx context.Context) (datastore.Revision, time.Duration, error) {
@@ -123,10 +126,11 @@ func (pgd *pgDatastore) CheckRevision(ctx context.Context, revisionRaw datastore
 
 // RevisionFromString reverses the encoding process performed by MarshalBinary and String.
 func (pgd *pgDatastore) RevisionFromString(revisionStr string) (datastore.Revision, error) {
-	return parseRevision(revisionStr)
+	return ParseRevisionString(revisionStr)
 }
 
-func parseRevision(revisionStr string) (rev datastore.Revision, err error) {
+// ParseRevisionString parses a revision string into a Postgres revision.
+func ParseRevisionString(revisionStr string) (rev datastore.Revision, err error) {
 	rev, err = parseRevisionProto(revisionStr)
 	if err != nil {
 		decimalRev, decimalErr := parseRevisionDecimal(revisionStr)
@@ -169,6 +173,14 @@ func parseRevisionProto(revisionStr string) (datastore.Revision, error) {
 	}, nil
 }
 
+// MaxLegacyXIPDelta is the maximum allowed delta between the xmin and
+// xmax revisions IDs on a *legacy* revision stored as a revision decimal.
+// This is set to prevent a delta that is too large from blowing out the
+// memory usage of the allocated slice, or even causing a panic in the case
+// of a VERY large delta (which can be produced by, for example, a CRDB revision
+// being given to a Postgres datastore accidentally).
+const MaxLegacyXIPDelta = 1000
+
 // parseRevisionDecimal parses a deprecated decimal.Decimal encoding of the revision
 // with an optional xmin component, in the format of revision.xmin, e.g. 100.99.
 // Because we're encoding to a snapshot, we want the revision to be considered visible,
@@ -203,6 +215,12 @@ func parseRevisionDecimal(revisionStr string) (datastore.Revision, error) {
 
 	var xipList []uint64
 	if xmax > xmin {
+		// Ensure that the delta is not too large to cause memory issues or a panic.
+		if xmax-xmin > MaxLegacyXIPDelta {
+			return nil, fmt.Errorf("received revision delta in excess of that expected; are you sure you're not passing a ZedToken from an incompatible datastore?")
+		}
+
+		// TODO(jschorr): Remove this deprecated code path once we have per-datastore-marked ZedTokens.
 		xipList = make([]uint64, 0, xmax-xmin)
 		for i := xmin; i < xid; i++ {
 			xipList = append(xipList, i)
@@ -220,7 +238,10 @@ func createNewTransaction(ctx context.Context, tx pgx.Tx) (newXID xid8, newSnaps
 	ctx, span := tracer.Start(ctx, "createNewTransaction")
 	defer span.End()
 
-	err = tx.QueryRow(ctx, createTxn).Scan(&newXID, &newSnapshot)
+	cterr := tx.QueryRow(ctx, createTxn).Scan(&newXID, &newSnapshot)
+	if cterr != nil {
+		err = fmt.Errorf("error when trying to create a new transaction: %w", cterr)
+	}
 	return
 }
 
@@ -245,6 +266,10 @@ func (pr postgresRevision) GreaterThan(rhsRaw datastore.Revision) bool {
 func (pr postgresRevision) LessThan(rhsRaw datastore.Revision) bool {
 	rhs, ok := rhsRaw.(postgresRevision)
 	return ok && pr.snapshot.LessThan(rhs.snapshot)
+}
+
+func (pr postgresRevision) DebugString() string {
+	return pr.snapshot.String()
 }
 
 func (pr postgresRevision) String() string {

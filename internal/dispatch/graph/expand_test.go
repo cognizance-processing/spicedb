@@ -20,7 +20,6 @@ import (
 	expand "spicedb/internal/graph"
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/testfixtures"
-	"spicedb/pkg/datastore"
 	"spicedb/pkg/graph"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
@@ -290,7 +289,6 @@ func TestMaxDepthExpand(t *testing.T) {
 
 	revision, err := common.WriteTuples(ctx, ds, core.RelationTupleUpdate_CREATE, tpl)
 	require.NoError(err)
-	require.True(revision.GreaterThan(datastore.NoRevision))
 	require.NoError(datastoremw.SetInContext(ctx, ds))
 
 	dispatch := NewLocalOnlyDispatcher(10)
@@ -630,6 +628,95 @@ func TestCaveatedExpand(t *testing.T) {
 				object_id:  "testdoc"
 				relation:  "view"
 			}
+			`,
+		},
+		{
+			"recursive caveated indirect arrow",
+			`definition user {}
+
+			caveat somecaveat(somecondition int) {
+				somecondition == 42
+			}
+		  
+			definition folder {
+				relation container: folder with somecaveat
+				relation member: user
+				permission view = container->member
+			}
+		  
+			definition resource {
+				relation folder: folder
+				permission view = folder->view
+			}`,
+			[]*core.RelationTuple{
+				tuple.MustParse("resource:someresource#folder@folder:first"),
+				tuple.MustParse("folder:first#container@folder:second[somecaveat]"),
+				tuple.MustParse("folder:first#member@user:notreachable"),
+				tuple.MustParse("folder:second#member@user:tom"),
+			},
+			tuple.ParseONR("resource:someresource#view"),
+			v1.DispatchExpandRequest_RECURSIVE,
+			`
+			intermediate_node: {
+				operation: UNION
+				child_nodes: {
+				  intermediate_node: {
+					operation: UNION
+					child_nodes: {
+					  intermediate_node: {
+						operation: UNION
+						child_nodes: {
+						  intermediate_node: {
+							operation: UNION
+							child_nodes: {
+							  leaf_node: {
+								subjects: {
+								  subject: {
+									namespace: "user"
+									object_id: "tom"
+									relation: "..."
+								  }
+								}
+							  }
+							  expanded: {
+								namespace: "folder"
+								object_id: "second"
+								relation: "member"
+							  }
+							  caveat_expression: {
+								caveat: {
+								  caveat_name: "somecaveat"
+								  context: {}
+								}
+							  }
+							}
+						  }
+						  expanded: {
+							namespace: "folder"
+							object_id: "first"
+							relation: "view"
+						  }
+						}
+					  }
+					  expanded: {
+						namespace: "folder"
+						object_id: "first"
+						relation: "view"
+					  }
+					}
+				  }
+				  expanded: {
+					namespace: "resource"
+					object_id: "someresource"
+					relation: "view"
+				  }
+				}
+			  }
+			  expanded: {
+				namespace: "resource"
+				object_id: "someresource"
+				relation: "view"
+			  }
 			`,
 		},
 	}

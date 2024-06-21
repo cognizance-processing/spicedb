@@ -10,6 +10,7 @@ import (
 	"spicedb/internal/telemetry"
 	"spicedb/pkg/cmd/datastore"
 	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/termination"
 	"spicedb/pkg/cmd/util"
 )
 
@@ -21,7 +22,7 @@ var (
 		Enabled:     true,
 		Metrics:     true,
 		NumCounters: 1_000,
-		MaxCost:     "16MiB",
+		MaxCost:     "32MiB",
 	}
 
 	dispatchCacheDefaults = &server.CacheConfig{
@@ -46,9 +47,13 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) error {
 	config.DispatchClusterMetricsEnabled = true
 	config.DispatchClientMetricsEnabled = true
 
+	// Flags for logging
+	cmd.Flags().BoolVar(&config.EnableRequestLogs, "grpc-log-requests-enabled", false, "logs API request payloads")
+	cmd.Flags().BoolVar(&config.EnableResponseLogs, "grpc-log-responses-enabled", false, "logs API response payloads")
+
 	// Flags for the gRPC API server
 	util.RegisterGRPCServerFlags(cmd.Flags(), &config.GRPCServer, "grpc", "gRPC", ":50051", true)
-	cmd.Flags().StringSliceVar(&config.PresharedKey, PresharedKeyFlag, []string{}, "preshared key(s) to require for authenticated requests")
+	cmd.Flags().StringSliceVar(&config.PresharedSecureKey, PresharedKeyFlag, []string{}, "preshared key(s) to require for authenticated requests")
 	cmd.Flags().DurationVar(&config.ShutdownGracePeriod, "grpc-shutdown-grace-period", 0*time.Second, "amount of time after receiving sigint to continue serving")
 	if err := cmd.MarkFlagRequired(PresharedKeyFlag); err != nil {
 		return fmt.Errorf("failed to mark flag as required: %w", err)
@@ -68,6 +73,9 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) error {
 		return fmt.Errorf("failed to mark flag as hidden: %w", err)
 	}
 	server.RegisterCacheFlags(cmd.Flags(), "ns-cache", &config.NamespaceCacheConfig, namespaceCacheDefaults)
+
+	cmd.Flags().BoolVar(&config.EnableExperimentalWatchableSchemaCache, "enable-experimental-watchable-schema-cache", false, "enables the experimental schema cache which makes use of the Watch API for automatic updates")
+	cmd.Flags().DurationVar(&config.SchemaWatchHeartbeat, "datastore-schema-watch-heartbeat", 1*time.Second, "heartbeat time on the schema watch in the datastore (if supported). 0 means to default to the datastore's minimum.")
 
 	// Flags for parsing and validating schemas.
 	cmd.Flags().BoolVar(&config.SchemaPrefixesRequired, "schema-prefixes-required", false, "require prefixes on all object definitions in schemas")
@@ -112,12 +120,23 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) error {
 	cmd.Flags().Uint16Var(&config.DispatchHashringReplicationFactor, "dispatch-hashring-replication-factor", 100, "set the replication factor of the consistent hasher used for the dispatcher")
 	cmd.Flags().Uint8Var(&config.DispatchHashringSpread, "dispatch-hashring-spread", 1, "set the spread of the consistent hasher used for the dispatcher")
 
+	cmd.Flags().StringToStringVar(&config.DispatchSecondaryUpstreamAddrs, "experimental-dispatch-secondary-upstream-addrs", nil, "secondary upstream addresses for dispatches, each with a name")
+	cmd.Flags().StringToStringVar(&config.DispatchSecondaryUpstreamExprs, "experimental-dispatch-secondary-upstream-exprs", nil, "map from request type (currently supported: `check`) to its associated CEL expression, which returns the secondary upstream(s) to be used for the request")
+
 	// Flags for configuring API behavior
 	cmd.Flags().BoolVar(&config.DisableV1SchemaAPI, "disable-v1-schema-api", false, "disables the V1 schema API")
 	cmd.Flags().BoolVar(&config.DisableVersionResponse, "disable-version-response", false, "disables version response support in the API")
 	cmd.Flags().Uint16Var(&config.MaximumUpdatesPerWrite, "write-relationships-max-updates-per-call", 1000, "maximum number of updates allowed for WriteRelationships calls")
 	cmd.Flags().Uint16Var(&config.MaximumPreconditionCount, "update-relationships-max-preconditions-per-call", 1000, "maximum number of preconditions allowed for WriteRelationships and DeleteRelationships calls")
 	cmd.Flags().IntVar(&config.MaxCaveatContextSize, "max-caveat-context-size", 4096, "maximum allowed size of request caveat context in bytes. A value of zero or less means no limit")
+	cmd.Flags().IntVar(&config.MaxRelationshipContextSize, "max-relationship-context-size", 25000, "maximum allowed size of the context to be stored in a relationship")
+	cmd.Flags().DurationVar(&config.StreamingAPITimeout, "streaming-api-response-delay-timeout", 30*time.Second, "max duration time elapsed between messages sent by the server-side to the client (responses) before the stream times out")
+	cmd.Flags().DurationVar(&config.WatchHeartbeat, "watch-api-heartbeat", 1*time.Second, "heartbeat time on the watch in the API. 0 means to default to the datastore's minimum.")
+
+	cmd.Flags().Uint32Var(&config.MaxReadRelationshipsLimit, "max-read-relationships-limit", 1000, "maximum number of relationships that can be read in a single request")
+	cmd.Flags().Uint32Var(&config.MaxDeleteRelationshipsLimit, "max-delete-relationships-limit", 1000, "maximum number of relationships that can be deleted in a single request")
+	cmd.Flags().Uint32Var(&config.MaxLookupResourcesLimit, "max-lookup-resources-limit", 1000, "maximum number of resources that can be looked up in a single request")
+	cmd.Flags().Uint32Var(&config.MaxBulkExportRelationshipsLimit, "max-bulk-export-relationships-limit", 10_000, "maximum number of relationships that can be exported in a single request")
 
 	cmd.Flags().BoolVar(&config.V1SchemaAdditiveOnly, "testing-only-schema-additive-writes", false, "append new definitions to the existing schema, rather than overwriting it")
 	if err := cmd.Flags().MarkHidden("testing-only-schema-additive-writes"); err != nil {
@@ -125,13 +144,17 @@ func RegisterServeFlags(cmd *cobra.Command, config *server.Config) error {
 	}
 
 	// Flags for misc services
-	util.RegisterHTTPServerFlags(cmd.Flags(), &config.DashboardAPI, "dashboard", "dashboard", ":8080", true)
 	util.RegisterHTTPServerFlags(cmd.Flags(), &config.MetricsAPI, "metrics", "metrics", ":9090", true)
+
+	if err := util.RegisterDeprecatedHTTPServerFlags(cmd, "dashboard", "dashboard"); err != nil {
+		return err
+	}
 
 	// Flags for telemetry
 	cmd.Flags().StringVar(&config.TelemetryEndpoint, "telemetry-endpoint", telemetry.DefaultEndpoint, "endpoint to which telemetry is reported, empty string to disable")
 	cmd.Flags().StringVar(&config.TelemetryCAOverridePath, "telemetry-ca-override-path", "", "TODO")
 	cmd.Flags().DurationVar(&config.TelemetryInterval, "telemetry-interval", telemetry.DefaultInterval, "approximate period between telemetry reports, minimum 1 minute")
+
 	return nil
 }
 
@@ -141,7 +164,7 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 		Short:   "serve the permissions database",
 		Long:    "A database that stores, computes, and validates application permissions",
 		PreRunE: server.DefaultPreRunE(programName),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: termination.PublishError(func(cmd *cobra.Command, args []string) error {
 			server, err := config.Complete(cmd.Context())
 			if err != nil {
 				return err
@@ -151,7 +174,7 @@ func NewServeCommand(programName string, config *server.Config) *cobra.Command {
 				config.ShutdownGracePeriod,
 			)
 			return server.Run(signalctx)
-		},
+		}),
 		Example: server.ServeExample(programName),
 	}
 }

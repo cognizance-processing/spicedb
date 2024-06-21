@@ -19,10 +19,10 @@ import (
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/testfixtures"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
 	core "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/tuple"
-	"spicedb/pkg/util"
 )
 
 var ONR = tuple.ObjectAndRelation
@@ -169,7 +169,6 @@ func TestMaxDepth(t *testing.T) {
 
 	revision, err := common.UpdateTuplesInDatastore(ctx, ds, mutation)
 	require.NoError(err)
-	require.True(revision.GreaterThan(datastore.NoRevision))
 
 	dispatch := NewLocalOnlyDispatcher(10)
 
@@ -292,10 +291,271 @@ func TestCheckMetadata(t *testing.T) {
 	}
 }
 
-func addFrame(trace *v1.CheckDebugTrace, foundFrames *util.Set[string]) {
-	foundFrames.Add(fmt.Sprintf("%s:%s#%s", trace.Request.ResourceRelation.Namespace, strings.Join(trace.Request.ResourceIds, ","), trace.Request.ResourceRelation.Relation))
+func addFrame(trace *v1.CheckDebugTrace, foundFrames *mapz.Set[string]) {
+	foundFrames.Insert(fmt.Sprintf("%s:%s#%s", trace.Request.ResourceRelation.Namespace, strings.Join(trace.Request.ResourceIds, ","), trace.Request.ResourceRelation.Relation))
 	for _, subTrace := range trace.SubProblems {
 		addFrame(subTrace, foundFrames)
+	}
+}
+
+func TestCheckPermissionOverSchema(t *testing.T) {
+	testCases := []struct {
+		name                   string
+		schema                 string
+		relationships          []*core.RelationTuple
+		resource               *core.ObjectAndRelation
+		subject                *core.ObjectAndRelation
+		expectedPermissionship v1.ResourceCheckResult_Membership
+	}{
+		{
+			"basic union",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer + editor
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"basic intersection",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer & editor
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+				tuple.MustParse("document:first#editor@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"basic exclusion",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer - editor
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"basic union, multiple branches",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer + editor
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+				tuple.MustParse("document:first#editor@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"basic union no permission",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer + editor
+  			 }`,
+			[]*core.RelationTuple{},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_NOT_MEMBER,
+		},
+		{
+			"basic intersection no permission",
+			`definition user {}
+		
+		 	 definition document {
+				relation editor: user
+				relation viewer: user
+				permission view = viewer & editor
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_NOT_MEMBER,
+		},
+		{
+			"basic exclusion no permission",
+			`definition user {}
+		
+		 	 definition document {
+				relation banned: user
+				relation viewer: user
+				permission view = viewer - banned
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+				tuple.MustParse("document:first#banned@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_NOT_MEMBER,
+		},
+		{
+			"exclusion with multiple branches",
+			`definition user {}
+		
+			 definition group {
+			 	relation member: user
+				relation banned: user
+			 	permission view = member - banned
+			 }
+
+		 	 definition document {
+				relation group: group
+				permission view = group->view
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#group@group:first"),
+				tuple.MustParse("document:first#group@group:second"),
+				tuple.MustParse("group:first#member@user:tom"),
+				tuple.MustParse("group:first#banned@user:tom"),
+				tuple.MustParse("group:second#member@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"intersection with multiple branches",
+			`definition user {}
+		
+			 definition group {
+			 	relation member: user
+				relation other: user
+			 	permission view = member & other
+			 }
+
+		 	 definition document {
+				relation group: group
+				permission view = group->view
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#group@group:first"),
+				tuple.MustParse("document:first#group@group:second"),
+				tuple.MustParse("group:first#member@user:tom"),
+				tuple.MustParse("group:first#other@user:tom"),
+				tuple.MustParse("group:second#member@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_MEMBER,
+		},
+		{
+			"exclusion with multiple branches no permission",
+			`definition user {}
+		
+			 definition group {
+			 	relation member: user
+				relation banned: user
+			 	permission view = member - banned
+			 }
+
+		 	 definition document {
+				relation group: group
+				permission view = group->view
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#group@group:first"),
+				tuple.MustParse("document:first#group@group:second"),
+				tuple.MustParse("group:first#member@user:tom"),
+				tuple.MustParse("group:first#banned@user:tom"),
+				tuple.MustParse("group:second#member@user:tom"),
+				tuple.MustParse("group:second#banned@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_NOT_MEMBER,
+		},
+		{
+			"intersection with multiple branches no permission",
+			`definition user {}
+		
+			 definition group {
+			 	relation member: user
+				relation other: user
+			 	permission view = member & other
+			 }
+
+		 	 definition document {
+				relation group: group
+				permission view = group->view
+  			 }`,
+			[]*core.RelationTuple{
+				tuple.MustParse("document:first#group@group:first"),
+				tuple.MustParse("document:first#group@group:second"),
+				tuple.MustParse("group:first#member@user:tom"),
+				tuple.MustParse("group:second#member@user:tom"),
+			},
+			ONR("document", "first", "view"),
+			ONR("user", "tom", "..."),
+			v1.ResourceCheckResult_NOT_MEMBER,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			require := require.New(t)
+
+			dispatcher := NewLocalOnlyDispatcher(10)
+
+			ds, err := memdb.NewMemdbDatastore(0, 0, memdb.DisableGC)
+			require.NoError(err)
+
+			ds, revision := testfixtures.DatastoreFromSchemaAndTestRelationships(ds, tc.schema, tc.relationships, require)
+
+			ctx := datastoremw.ContextWithHandle(context.Background())
+			require.NoError(datastoremw.SetInContext(ctx, ds))
+
+			resp, err := dispatcher.DispatchCheck(ctx, &v1.DispatchCheckRequest{
+				ResourceRelation: RR(tc.resource.Namespace, tc.resource.Relation),
+				ResourceIds:      []string{tc.resource.ObjectId},
+				Subject:          tc.subject,
+				Metadata: &v1.ResolverMeta{
+					AtRevision:     revision.String(),
+					DepthRemaining: 50,
+				},
+				ResultsSetting: v1.DispatchCheckRequest_ALLOW_SINGLE_RESULT,
+			})
+			require.NoError(err)
+
+			membership := v1.ResourceCheckResult_NOT_MEMBER
+			if r, ok := resp.ResultsByResourceId[tc.resource.ObjectId]; ok {
+				membership = r.Membership
+			}
+
+			require.Equal(tc.expectedPermissionship, membership)
+		})
 	}
 }
 
@@ -396,13 +656,14 @@ func TestCheckDebugging(t *testing.T) {
 			require.NoError(err)
 			require.NotNil(checkResult.Metadata.DebugInfo)
 			require.NotNil(checkResult.Metadata.DebugInfo.Check)
+			require.NotNil(checkResult.Metadata.DebugInfo.Check.Duration)
 
-			expectedFrames := util.NewSet[string]()
+			expectedFrames := mapz.NewSet[string]()
 			for _, expectedFrame := range tc.expectedFrames {
 				expectedFrames.Add(fmt.Sprintf("%s:%s#%s", expectedFrame.resourceType.Namespace, strings.Join(expectedFrame.resourceIDs, ","), expectedFrame.resourceType.Relation))
 			}
 
-			foundFrames := util.NewSet[string]()
+			foundFrames := mapz.NewSet[string]()
 			addFrame(checkResult.Metadata.DebugInfo.Check, foundFrames)
 
 			require.Empty(expectedFrames.Subtract(foundFrames).AsSlice(), "missing expected frames: %v", expectedFrames.Subtract(foundFrames).AsSlice())

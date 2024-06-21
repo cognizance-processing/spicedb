@@ -6,19 +6,20 @@ import (
 	"testing"
 
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 
 	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/pkg/cursor"
 	"spicedb/pkg/datastore/revision"
+	dispatch "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/zedtoken"
 )
 
 var (
-	zero      = revision.NewFromDecimal(decimal.NewFromInt(0))
-	optimized = revision.NewFromDecimal(decimal.NewFromInt(100))
-	exact     = revision.NewFromDecimal(decimal.NewFromInt(123))
-	head      = revision.NewFromDecimal(decimal.NewFromInt(145))
+	zero      = revisions.NewForTransactionID(0)
+	optimized = revisions.NewForTransactionID(100)
+	exact     = revisions.NewForTransactionID(123)
+	head      = revisions.NewForTransactionID(145)
 )
 
 func TestAddRevisionToContextNoneSupplied(t *testing.T) {
@@ -158,4 +159,35 @@ func TestAddRevisionToContextNoConsistencyAPI(t *testing.T) {
 
 	_, _, err := RevisionFromContext(updated)
 	require.Error(err)
+}
+
+func TestAddRevisionToContextWithCursor(t *testing.T) {
+	require := require.New(t)
+
+	ds := &proxy_test.MockDatastore{}
+	ds.On("CheckRevision", optimized).Return(nil).Times(1)
+	ds.On("RevisionFromString", optimized.String()).Return(optimized, nil).Once()
+
+	// cursor is at `optimized`
+	cursor, err := cursor.EncodeFromDispatchCursor(&dispatch.Cursor{}, "somehash", optimized)
+	require.NoError(err)
+
+	// revision in context is at `exact`
+	updated := ContextWithHandle(context.Background())
+	err = AddRevisionToContext(updated, &v1.LookupResourcesRequest{
+		Consistency: &v1.Consistency{
+			Requirement: &v1.Consistency_AtExactSnapshot{
+				AtExactSnapshot: zedtoken.MustNewFromRevision(exact),
+			},
+		},
+		OptionalCursor: cursor,
+	}, ds)
+	require.NoError(err)
+
+	// ensure we get back `optimized` from the cursor
+	rev, _, err := RevisionFromContext(updated)
+	require.NoError(err)
+
+	require.True(optimized.Equal(rev))
+	ds.AssertExpectations(t)
 }

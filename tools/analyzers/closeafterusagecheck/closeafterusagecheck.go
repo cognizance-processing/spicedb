@@ -2,11 +2,10 @@ package closeafterusagecheck
 
 import (
 	"flag"
-	"fmt"
 	"go/ast"
+	"slices"
 	"strings"
 
-	"golang.org/x/exp/slices"
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
 	"golang.org/x/tools/go/ast/inspector"
@@ -114,7 +113,7 @@ func Analyzer() *analysis.Analyzer {
 					for _, expr := range s.Lhs {
 						foundType := pass.TypesInfo.TypeOf(expr)
 						if foundType == nil {
-							return false
+							continue
 						}
 
 						varTypeString := foundType.String()
@@ -197,18 +196,4 @@ func stIndex(statements []ast.Stmt, node ast.Node) int {
 	return slices.IndexFunc(statements, func(current ast.Stmt) bool {
 		return current == node
 	})
-}
-
-func min(x int, y int) int {
-	if x > y {
-		return y
-	}
-	return x
-}
-
-func printTypes(nodes []ast.Node) {
-	for _, n := range nodes {
-		fmt.Printf("%T, ", n)
-	}
-	fmt.Println()
 }

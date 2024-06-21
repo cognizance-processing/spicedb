@@ -3,6 +3,7 @@ package common
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -13,16 +14,45 @@ import (
 
 const (
 	pgUniqueConstraintViolation = "23505"
+	pgSerializationFailure      = "40001"
+	pgTransactionAborted        = "25P02"
 )
 
-var createConflictDetailsRegex = regexp.MustCompile(`^Key (.+)=\(([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)\) already exists`)
+var (
+	createConflictDetailsRegex              = regexp.MustCompile(`^Key (.+)=\(([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)\) already exists`)
+	createConflictDetailsRegexWithoutCaveat = regexp.MustCompile(`^Key (.+)=\(([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)\) already exists`)
+)
+
+// IsConstraintFailureError returns true if the error is a Postgres error indicating a constraint
+// failure.
+func IsConstraintFailureError(err error) bool {
+	var pgerr *pgconn.PgError
+	return errors.As(err, &pgerr) && pgerr.Code == pgUniqueConstraintViolation
+}
 
 // ConvertToWriteConstraintError converts the given Postgres error into a CreateRelationshipExistsError
 // if applicable. If not applicable, returns nils.
-func ConvertToWriteConstraintError(livingTupleConstraint string, err error) error {
+func ConvertToWriteConstraintError(livingTupleConstraints []string, err error) error {
 	var pgerr *pgconn.PgError
-	if errors.As(err, &pgerr) && pgerr.Code == pgUniqueConstraintViolation && pgerr.ConstraintName == livingTupleConstraint {
+
+	if errors.As(err, &pgerr) && pgerr.Code == pgUniqueConstraintViolation && slices.Contains(livingTupleConstraints, pgerr.ConstraintName) {
 		found := createConflictDetailsRegex.FindStringSubmatch(pgerr.Detail)
+		if found != nil {
+			return dscommon.NewCreateRelationshipExistsError(&core.RelationTuple{
+				ResourceAndRelation: &core.ObjectAndRelation{
+					Namespace: strings.TrimSpace(found[2]),
+					ObjectId:  strings.TrimSpace(found[3]),
+					Relation:  strings.TrimSpace(found[4]),
+				},
+				Subject: &core.ObjectAndRelation{
+					Namespace: strings.TrimSpace(found[5]),
+					ObjectId:  strings.TrimSpace(found[6]),
+					Relation:  strings.TrimSpace(found[7]),
+				},
+			})
+		}
+
+		found = createConflictDetailsRegexWithoutCaveat.FindStringSubmatch(pgerr.Detail)
 		if found != nil {
 			return dscommon.NewCreateRelationshipExistsError(&core.RelationTuple{
 				ResourceAndRelation: &core.ObjectAndRelation{

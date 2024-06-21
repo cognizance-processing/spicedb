@@ -122,6 +122,10 @@ func CaveatDefinition(env *caveats.Environment, name string, expr string) (*core
 
 // CompiledCaveatDefinition returns a new caveat definition.
 func CompiledCaveatDefinition(env *caveats.Environment, name string, compiled *caveats.CompiledCaveat) (*core.CaveatDefinition, error) {
+	if compiled == nil {
+		return nil, spiceerrors.MustBugf("compiled caveat is nil")
+	}
+
 	serialized, err := compiled.Serialize()
 	if err != nil {
 		return nil, err
@@ -139,6 +143,16 @@ func MustCaveatDefinition(env *caveats.Environment, name string, expr string) *c
 	if err != nil {
 		panic(err)
 	}
+	return cd
+}
+
+// MustCaveatDefinitionWithComment returns a new caveat definition.
+func MustCaveatDefinitionWithComment(env *caveats.Environment, name string, comment string, expr string) *core.CaveatDefinition {
+	cd, err := CaveatDefinition(env, name, expr)
+	if err != nil {
+		panic(err)
+	}
+	cd.Metadata, _ = AddComment(cd.Metadata, comment)
 	return cd
 }
 
@@ -210,6 +224,23 @@ func ComputedUserset(relation string) *core.SetOperation_Child {
 			ComputedUserset: &core.ComputedUserset{
 				Relation: relation,
 			},
+		},
+	}
+}
+
+// MustComputesUsersetWithSourcePosition creates a child for a set operation that follows a relation on the given starting object.
+func MustComputesUsersetWithSourcePosition(relation string, lineNumber uint64) *core.SetOperation_Child {
+	cu := &core.ComputedUserset{
+		Relation: relation,
+	}
+	cu.SourcePosition = &core.SourcePosition{
+		ZeroIndexedLineNumber:     lineNumber,
+		ZeroIndexedColumnPosition: 0,
+	}
+
+	return &core.SetOperation_Child{
+		ChildType: &core.SetOperation_Child_ComputedUserset{
+			ComputedUserset: cu,
 		},
 	}
 }

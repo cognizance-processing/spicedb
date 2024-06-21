@@ -5,17 +5,17 @@ import (
 	dbsql "database/sql"
 	"errors"
 	"fmt"
-	"net"
 	"os"
+	"sync/atomic"
 	"time"
 
-	"cloud.google.com/go/cloudsqlconn"
 	"github.com/IBM/pgxpoolprometheus"
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/jackc/pgx/v5/stdlib"
+	"github.com/mattn/go-isatty"
 	"github.com/ngrok/sqlmw"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/viper"
@@ -26,9 +26,17 @@ import (
 	"spicedb/internal/datastore/common/revisions"
 	pgxcommon "spicedb/internal/datastore/postgres/common"
 	"spicedb/internal/datastore/postgres/migrations"
-	"spicedb/internal/datastore/proxy"
 	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
+
+	"github.com/schollz/progressbar/v3"
+	"go.opentelemetry.io/otel"
+	"golang.org/x/sync/errgroup"
+
+	datastoreinternal "spicedb/internal/datastore"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/revisions"
+	"spicedb/pkg/datastore/options"
 )
 
 func init() {
@@ -36,11 +44,12 @@ func init() {
 }
 
 const (
-	Engine           = "postgres"
-	tableNamespace   = "namespace_config"
-	tableTransaction = "relation_tuple_transaction"
-	tableTuple       = "relation_tuple"
-	tableCaveat      = "caveat"
+	Engine                   = "postgres"
+	tableNamespace           = "namespace_config"
+	tableTransaction         = "relation_tuple_transaction"
+	tableTuple               = "relation_tuple"
+	tableCaveat              = "caveat"
+	tableRelationshipCounter = "relationship_counter"
 
 	colXID               = "xid"
 	colTimestamp         = "timestamp"
@@ -59,7 +68,12 @@ const (
 	colCaveatContextName = "caveat_name"
 	colCaveatContext     = "caveat_context"
 
-	errUnableToInstantiate = "unable to instantiate datastore: %w"
+	colCounterName         = "name"
+	colCounterFilter       = "serialized_filter"
+	colCounterCurrentCount = "current_count"
+	colCounterSnapshot     = "updated_revision_snapshot"
+
+	errUnableToInstantiate = "unable to instantiate datastore"
 
 	// The parameters to this format string are:
 	// 1: the created_xid or deleted_xid column name
@@ -72,13 +86,10 @@ const (
 
 	tracingDriverName = "postgres-tracing"
 
-	batchDeleteSize = 1000
-
-	pgSerializationFailure      = "40001"
-	pgUniqueConstraintViolation = "23505"
-
-	livingTupleConstraint = "uq_relation_tuple_living_xid"
+	gcBatchDeleteSize = 1000
 )
+
+var livingTupleConstraints = []string{"uq_relation_tuple_living_xid", "pk_relation_tuple"}
 
 func init() {
 	dbsql.Register(tracingDriverName, sqlmw.Driver(stdlib.GetDefaultDriver(), new(traceInterceptor)))
@@ -125,15 +136,16 @@ type sqlFilter interface {
 //
 // This datastore is also tested to be compatible with CockroachDB.
 func NewPostgresDatastore(
+	ctx context.Context,
 	url string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	ds, err := newPostgresDatastore(url, options...)
+	ds, err := newPostgresDatastore(ctx, url, options...)
 	if err != nil {
 		return nil, err
 	}
 
-	return proxy.NewSeparatingContextDatastoreProxy(ds), nil
+	return datastoreinternal.NewSeparatingContextDatastoreProxy(ds), nil
 }
 
 func GetConfig(configFileName *string) (*Config, error) {
@@ -163,7 +175,8 @@ func GetConfig(configFileName *string) (*Config, error) {
 }
 
 func newPostgresDatastore(
-	url string,
+	ctx context.Context,
+	pgURL string,
 	options ...Option,
 ) (datastore.Datastore, error) {
 	var configFileName = "config"
@@ -184,7 +197,55 @@ func newPostgresDatastore(
 	//config.gcEnabled = false
 	url = dsn
 	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
+		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
+	}
+
+	// Parse the DB URI into configuration.
+	parsedConfig, err := pgxpool.ParseConfig(pgURL)
+	if err != nil {
+		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
+	}
+
+	// Setup the default custom plan setting, if applicable.
+	pgConfig, err := defaultCustomPlan(parsedConfig)
+	if err != nil {
+		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
+	}
+
+	// Setup the credentials provider
+	var credentialsProvider datastore.CredentialsProvider
+	if config.credentialsProviderName != "" {
+		credentialsProvider, err = datastore.NewCredentialsProvider(ctx, config.credentialsProviderName)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Setup the config for each of the read and write pools.
+	readPoolConfig := pgConfig.Copy()
+	config.readPoolOpts.ConfigurePgx(readPoolConfig)
+
+	readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		RegisterTypes(conn.TypeMap())
+		return nil
+	}
+
+	writePoolConfig := pgConfig.Copy()
+	config.writePoolOpts.ConfigurePgx(writePoolConfig)
+
+	writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		RegisterTypes(conn.TypeMap())
+		return nil
+	}
+
+	if credentialsProvider != nil {
+		// add before connect callbacks to trigger the token
+		getToken := func(ctx context.Context, config *pgx.ConnConfig) error {
+			config.User, config.Password, err = credentialsProvider.Get(ctx, fmt.Sprintf("%s:%d", config.Host, config.Port), config.User)
+			return err
+		}
+		readPoolConfig.BeforeConnect = getToken
+		writePoolConfig.BeforeConnect = getToken
 	}
 
 	if config.migrationPhase != "" {
@@ -192,47 +253,49 @@ func newPostgresDatastore(
 			Str("phase", config.migrationPhase).
 			Msg("postgres configured to use intermediate migration phase")
 	}
-	var opts []cloudsqlconn.Option
-	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
-	if err != nil {
-		return nil, err
-	}
-	readPoolConfig, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
-	}
-	config.readPoolOpts.ConfigurePgx(readPoolConfig)
-	readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		RegisterTypes(conn.TypeMap())
-		return nil
-	}
+	//THESE ARE MY CHANGES I NEED I THINK?
+	// var opts []cloudsqlconn.Option
+	// d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// readPoolConfig, err := pgxpool.ParseConfig(url)
+	// if err != nil {
+	// 	return nil, fmt.Errorf(errUnableToInstantiate, err)
+	// }
+	// config.readPoolOpts.ConfigurePgx(readPoolConfig)
+	// readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+	// 	RegisterTypes(conn.TypeMap())
+	// 	return nil
+	// }
 
-	writePoolConfig, err := pgxpool.ParseConfig(url)
-	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
-	}
-	config.writePoolOpts.ConfigurePgx(writePoolConfig)
-	writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-		RegisterTypes(conn.TypeMap())
-		return nil
-	}
-	readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
-	}
-	writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
-	}
+	// writePoolConfig, err := pgxpool.ParseConfig(url)
+	// if err != nil {
+	// 	return nil, fmt.Errorf(errUnableToInstantiate, err)
+	// }
+	// config.writePoolOpts.ConfigurePgx(writePoolConfig)
+	// writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+	// 	RegisterTypes(conn.TypeMap())
+	// 	return nil
+	// }
+	// readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
+	// 	return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
+	// }
+	// writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
+	// 	return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
+	// }
+
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
 
 	readPool, err := pgxpool.NewWithConfig(initializationContext, readPoolConfig)
 	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
+		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
 	writePool, err := pgxpool.NewWithConfig(initializationContext, writePoolConfig)
 	if err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
+		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 	//dbURI := stdlib.RegisterConnConfig(readPoolConfig.ConnConfig)
 	// Verify that the server supports commit timestamps
@@ -240,7 +303,7 @@ func newPostgresDatastore(
 	if err := readPool.
 		QueryRow(initializationContext, "SHOW track_commit_timestamp;").
 		Scan(&trackTSOn); err != nil {
-		return nil, fmt.Errorf(errUnableToInstantiate, err)
+		return nil, err
 	}
 
 	watchEnabled := trackTSOn == "on"
@@ -253,16 +316,16 @@ func newPostgresDatastore(
 			"db_name":    "spicedb",
 			"pool_usage": "read",
 		})); err != nil {
-			return nil, fmt.Errorf(errUnableToInstantiate, err)
+			return nil, err
 		}
 		if err := prometheus.Register(pgxpoolprometheus.NewCollector(writePool, map[string]string{
 			"db_name":    "spicedb",
 			"pool_usage": "write",
 		})); err != nil {
-			return nil, fmt.Errorf(errUnableToInstantiate, err)
+			return nil, err
 		}
 		if err := common.RegisterGCMetrics(); err != nil {
-			return nil, fmt.Errorf(errUnableToInstantiate, err)
+			return nil, err
 		}
 	}
 
@@ -297,22 +360,23 @@ func newPostgresDatastore(
 		CachedOptimizedRevisions: revisions.NewCachedOptimizedRevisions(
 			maxRevisionStaleness,
 		),
-		dburl:                   url,
+		dburl:                   pgURL,
 		readPool:                pgxcommon.MustNewInterceptorPooler(readPool, config.queryInterceptor),
 		writePool:               pgxcommon.MustNewInterceptorPooler(writePool, config.queryInterceptor),
 		watchBufferLength:       config.watchBufferLength,
+		watchBufferWriteTimeout: config.watchBufferWriteTimeout,
 		optimizedRevisionQuery:  revisionQuery,
 		validTransactionQuery:   validTransactionQuery,
 		gcWindow:                config.gcWindow,
 		gcInterval:              config.gcInterval,
 		gcTimeout:               config.gcMaxOperationTime,
 		analyzeBeforeStatistics: config.analyzeBeforeStatistics,
-		usersetBatchSize:        config.splitAtUsersetCount,
 		watchEnabled:            watchEnabled,
 		gcCtx:                   gcCtx,
 		cancelGc:                cancelGc,
 		readTxOptions:           pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
 		maxRetries:              config.maxRetries,
+		credentialsProvider:     credentialsProvider,
 	}
 
 	datastore.SetOptimizedRevisionFunc(datastore.optimizedRevisionFunc)
@@ -342,91 +406,215 @@ type pgDatastore struct {
 	dburl                   string
 	readPool, writePool     pgxcommon.ConnPooler
 	watchBufferLength       uint16
+	watchBufferWriteTimeout time.Duration
 	optimizedRevisionQuery  string
 	validTransactionQuery   string
 	gcWindow                time.Duration
 	gcInterval              time.Duration
 	gcTimeout               time.Duration
-	usersetBatchSize        uint16
 	analyzeBeforeStatistics bool
 	readTxOptions           pgx.TxOptions
 	maxRetries              uint8
 	watchEnabled            bool
 
+	credentialsProvider datastore.CredentialsProvider
+
 	gcGroup  *errgroup.Group
 	gcCtx    context.Context
 	cancelGc context.CancelFunc
+	gcHasRun atomic.Bool
 }
 
 func (pgd *pgDatastore) SnapshotReader(revRaw datastore.Revision) datastore.Reader {
 	rev := revRaw.(postgresRevision)
 
-	createTxFunc := func(ctx context.Context) (pgxcommon.DBReader, common.TxCleanupFunc, error) {
-		return pgd.readPool, func(ctx context.Context) {}, nil
-	}
-
-	querySplitter := common.TupleQuerySplitter{
-		Executor:         pgxcommon.NewPGXExecutor(createTxFunc),
-		UsersetBatchSize: pgd.usersetBatchSize,
+	queryFuncs := pgxcommon.QuerierFuncsFor(pgd.readPool)
+	executor := common.QueryExecutor{
+		Executor: pgxcommon.NewPGXExecutor(queryFuncs),
 	}
 
 	return &pgReader{
-		createTxFunc,
-		querySplitter,
+		queryFuncs,
+		executor,
 		buildLivingObjectFilterForRevision(rev),
 	}
 }
 
-func noCleanup(context.Context) {}
-
-// ReadWriteTx tarts a read/write transaction, which will be committed if no error is
+// ReadWriteTx starts a read/write transaction, which will be committed if no error is
 // returned and rolled back if an error is returned.
 func (pgd *pgDatastore) ReadWriteTx(
 	ctx context.Context,
 	fn datastore.TxUserFunc,
+	opts ...options.RWTOptionsOption,
 ) (datastore.Revision, error) {
+	config := options.NewRWTOptionsWithOptions(opts...)
+
 	var err error
 	for i := uint8(0); i <= pgd.maxRetries; i++ {
 		var newXID xid8
 		var newSnapshot pgSnapshot
-		err = pgx.BeginTxFunc(ctx, pgd.writePool, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
+		err = wrapError(pgx.BeginTxFunc(ctx, pgd.writePool, pgx.TxOptions{IsoLevel: pgx.Serializable}, func(tx pgx.Tx) error {
 			var err error
 			newXID, newSnapshot, err = createNewTransaction(ctx, tx)
 			if err != nil {
 				return err
 			}
 
-			longLivedTx := func(context.Context) (pgxcommon.DBReader, common.TxCleanupFunc, error) {
-				return tx, noCleanup, nil
-			}
-
-			querySplitter := common.TupleQuerySplitter{
-				Executor:         pgxcommon.NewPGXExecutor(longLivedTx),
-				UsersetBatchSize: pgd.usersetBatchSize,
+			queryFuncs := pgxcommon.QuerierFuncsFor(pgd.readPool)
+			executor := common.QueryExecutor{
+				Executor: pgxcommon.NewPGXExecutor(queryFuncs),
 			}
 
 			rwt := &pgReadWriteTXN{
 				&pgReader{
-					longLivedTx,
-					querySplitter,
+					queryFuncs,
+					executor,
 					currentlyLivingObjects,
 				},
 				tx,
 				newXID,
 			}
 
-			return fn(rwt)
-		})
+			return fn(ctx, rwt)
+		}))
 		if err != nil {
-			if errorRetryable(err) {
+			if !config.DisableRetries && errorRetryable(err) {
+				pgxcommon.SleepOnErr(ctx, err, i)
 				continue
 			}
+
 			return datastore.NoRevision, err
+		}
+
+		if i > 0 {
+			log.Debug().Uint8("retries", i).Msg("transaction succeeded after retry")
 		}
 
 		return postgresRevision{newSnapshot.markComplete(newXID.Uint64)}, nil
 	}
-	return datastore.NoRevision, fmt.Errorf("max retries exceeded: %w", err)
+
+	if !config.DisableRetries {
+		err = fmt.Errorf("max retries exceeded: %w", err)
+	}
+
+	return datastore.NoRevision, err
+}
+
+const repairTransactionIDsOperation = "transaction-ids"
+
+func (pgd *pgDatastore) Repair(ctx context.Context, operationName string, outputProgress bool) error {
+	switch operationName {
+	case repairTransactionIDsOperation:
+		return pgd.repairTransactionIDs(ctx, outputProgress)
+
+	default:
+		return fmt.Errorf("unknown operation")
+	}
+}
+
+const batchSize = 10000
+
+func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress bool) error {
+	conn, err := pgx.Connect(ctx, pgd.dburl)
+	if err != nil {
+		return err
+	}
+	defer conn.Close(ctx)
+
+	// Get the current transaction ID.
+	currentMaximumID := 0
+	if err := conn.QueryRow(ctx, queryCurrentTransactionID).Scan(&currentMaximumID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+
+	// Find the maximum transaction ID referenced in the transactions table.
+	referencedMaximumID := 0
+	if err := conn.QueryRow(ctx, queryLatestXID).Scan(&referencedMaximumID); err != nil {
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return err
+		}
+	}
+
+	// The delta is what this needs to fill in.
+	log.Ctx(ctx).Info().Int64("current-maximum", int64(currentMaximumID)).Int64("referenced-maximum", int64(referencedMaximumID)).Msg("found transactions")
+	counterDelta := referencedMaximumID - currentMaximumID
+	if counterDelta < 0 {
+		return nil
+	}
+
+	var bar *progressbar.ProgressBar
+	if isatty.IsTerminal(os.Stderr.Fd()) && outputProgress {
+		bar = progressbar.Default(int64(counterDelta), "updating transactions counter")
+	}
+
+	for i := 0; i < counterDelta; i++ {
+		var batch pgx.Batch
+
+		batchCount := min(batchSize, counterDelta-i)
+		for j := 0; j < batchCount; j++ {
+			batch.Queue("begin;")
+			batch.Queue("select pg_current_xact_id();")
+			batch.Queue("rollback;")
+		}
+
+		br := conn.SendBatch(ctx, &batch)
+		if err := br.Close(); err != nil {
+			return err
+		}
+
+		i += batchCount - 1
+		if bar != nil {
+			if err := bar.Add(batchCount); err != nil {
+				return err
+			}
+		}
+	}
+
+	if bar != nil {
+		if err := bar.Close(); err != nil {
+			return err
+		}
+	}
+
+	log.Ctx(ctx).Info().Msg("completed revisions repair")
+	return nil
+}
+
+// RepairOperations returns the available repair operations for the datastore.
+func (pgd *pgDatastore) RepairOperations() []datastore.RepairOperation {
+	return []datastore.RepairOperation{
+		{
+			Name:        repairTransactionIDsOperation,
+			Description: "Brings the Postgres database up to the expected transaction ID (Postgres v15+ only)",
+		},
+	}
+}
+
+func wrapError(err error) error {
+	// If a unique constraint violation is returned, then its likely that the cause
+	// was an existing relationship given as a CREATE.
+	if cerr := pgxcommon.ConvertToWriteConstraintError(livingTupleConstraints, err); cerr != nil {
+		return cerr
+	}
+
+	if pgxcommon.IsSerializationError(err) {
+		return common.NewSerializationError(err)
+	}
+
+	// hack: pgx asyncClose usually happens after cancellation,
+	// but the reason for it being closed is not propagated
+	// and all we get is attempting to perform an operation
+	// on cancelled connection. This keeps the same error,
+	// but wrapped along a cancellation so that:
+	// - pgx logger does not log it
+	// - response is sent as canceled back to the client
+	if err != nil && err.Error() == "conn closed" {
+		return errors.Join(err, context.Canceled)
+	}
+
+	return err
 }
 
 func (pgd *pgDatastore) Close() error {
@@ -443,16 +631,20 @@ func (pgd *pgDatastore) Close() error {
 }
 
 func errorRetryable(err error) bool {
-	var pgerr *pgconn.PgError
-	if !errors.As(err, &pgerr) {
-		log.Debug().Err(err).Msg("couldn't determine a sqlstate error code")
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
 
-	// We need to check unique constraint here because some versions of postgres have an error where
-	// unique constraint violations are raised instead of serialization errors.
-	// (e.g. https://www.postgresql.org/message-id/flat/CAGPCyEZG76zjv7S31v_xPeLNRuzj-m%3DY2GOY7PEzu7vhB%3DyQog%40mail.gmail.com)
-	return pgerr.SQLState() == pgSerializationFailure || pgerr.SQLState() == pgUniqueConstraintViolation
+	if pgconn.SafeToRetry(err) {
+		return true
+	}
+
+	if pgxcommon.IsSerializationError(err) {
+		return true
+	}
+
+	log.Warn().Err(err).Msg("unable to determine if pgx error is retryable")
+	return false
 }
 
 func (pgd *pgDatastore) ReadyState(ctx context.Context) (datastore.ReadyState, error) {
@@ -461,24 +653,31 @@ func (pgd *pgDatastore) ReadyState(ctx context.Context) (datastore.ReadyState, e
 		return datastore.ReadyState{}, fmt.Errorf("invalid head migration found for postgres: %w", err)
 	}
 
-	currentRevision, err := migrations.NewAlembicPostgresDriver(pgd.dburl)
+	pgDriver, err := migrations.NewAlembicPostgresDriver(ctx, pgd.dburl, pgd.credentialsProvider)
 	if err != nil {
 		return datastore.ReadyState{}, err
 	}
-	defer currentRevision.Close(ctx)
+	defer pgDriver.Close(ctx)
 
-	version, err := currentRevision.Version(ctx)
+	version, err := pgDriver.Version(ctx)
 	if err != nil {
 		return datastore.ReadyState{}, err
 	}
 
 	if version == headMigration {
+		// Ensure a datastore ID is present. This ensures the tables have not been truncated.
+		uniqueID, err := pgd.datastoreUniqueID(ctx)
+		if err != nil {
+			return datastore.ReadyState{}, fmt.Errorf("database validation failed: %w; if you have previously run `TRUNCATE`, this database is no longer valid and must be remigrated. See: https://spicedb.dev/d/truncate-unsupported", err)
+		}
+
+		log.Trace().Str("unique_id", uniqueID).Msg("postgres datastore unique ID")
 		return datastore.ReadyState{IsReady: true}, nil
 	}
 
 	return datastore.ReadyState{
 		Message: fmt.Sprintf(
-			"datastore is not migrated: currently at revision `%s`, but requires `%s`. Please run `spicedb migrate`.",
+			"datastore is not migrated: currently at revision `%s`, but requires `%s`. Please run `spicedb migrate`. If you have previously run `TRUNCATE`, this database is no longer valid and must be remigrated. See: https://spicedb.dev/d/truncate-unsupported",
 			version,
 			headMigration,
 		),
@@ -508,6 +707,27 @@ func buildLivingObjectFilterForRevision(revision postgresRevision) queryFilterer
 
 func currentlyLivingObjects(original sq.SelectBuilder) sq.SelectBuilder {
 	return original.Where(sq.Eq{colDeletedXid: liveDeletedTxnID})
+}
+
+// defaultCustomPlan parses a Postgres URI and determines if a plan_cache_mode
+// has been specified. If not, it defaults to "force_custom_plan".
+// This works around a bug impacting performance documented here:
+// https://spicedb.dev/d/force-custom-plan.
+func defaultCustomPlan(poolConfig *pgxpool.Config) (*pgxpool.Config, error) {
+	if existing, ok := poolConfig.ConnConfig.Config.RuntimeParams["plan_cache_mode"]; ok {
+		log.Info().
+			Str("plan_cache_mode", existing).
+			Msg("found plan_cache_mode in DB URI; leaving as-is")
+		return poolConfig, nil
+	}
+
+	poolConfig.ConnConfig.Config.RuntimeParams["plan_cache_mode"] = "force_custom_plan"
+	log.Warn().
+		Str("details-url", "https://spicedb.dev/d/force-custom-plan").
+		Str("plan_cache_mode", "force_custom_plan").
+		Msg("defaulting value in Postgres DB URI")
+
+	return poolConfig, nil
 }
 
 var _ datastore.Datastore = &pgDatastore{}

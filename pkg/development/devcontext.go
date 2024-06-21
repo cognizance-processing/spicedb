@@ -18,6 +18,7 @@ import (
 	"spicedb/internal/dispatch"
 	"spicedb/internal/dispatch/graph"
 	maingraph "spicedb/internal/graph"
+	"spicedb/internal/grpchelpers"
 	log "spicedb/internal/logging"
 	"spicedb/internal/middleware/consistency"
 	datastoremw "spicedb/internal/middleware/datastore"
@@ -31,6 +32,7 @@ import (
 	"spicedb/pkg/schemadsl/compiler"
 	"spicedb/pkg/spiceerrors"
 	"spicedb/pkg/tuple"
+	"spicedb/pkg/typesystem"
 )
 
 const defaultConnBufferSize = humanize.MiByte
@@ -79,7 +81,7 @@ func newDevContextWithDatastore(ctx context.Context, requestContext *devinterfac
 	}
 
 	var inputErrors []*devinterface.DeveloperError
-	currentRevision, err := ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
+	currentRevision, err := ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
 		inputErrors, err = loadCompiled(ctx, compiled, rwt)
 		if err != nil || len(inputErrors) > 0 {
 			return err
@@ -147,14 +149,13 @@ func (dc *DevContext) RunV1InMemoryService() (*grpc.ClientConn, func(), error) {
 		}
 	}()
 
-	conn, err := grpc.DialContext(
+	conn, err := grpchelpers.DialAndWait(
 		context.Background(),
 		"",
 		grpc.WithContextDialer(func(context.Context, string) (net.Conn, error) {
 			return listener.Dial()
 		}),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithBlock(),
 	)
 	return conn, func() {
 		conn.Close()
@@ -201,7 +202,7 @@ func loadTuples(ctx context.Context, tuples []*core.RelationTuple, rwt datastore
 			continue
 		}
 
-		err = relationships.ValidateRelationshipUpdates(ctx, rwt, []*core.RelationTupleUpdate{tuple.Touch(tpl)})
+		err = relationships.ValidateRelationshipsForCreateOrTouch(ctx, rwt, []*core.RelationTuple{tpl})
 		if err != nil {
 			devErr, wireErr := distinguishGraphError(ctx, err, devinterface.DeveloperError_RELATIONSHIP, 0, 0, tplString)
 			if devErr != nil {
@@ -226,7 +227,7 @@ func loadCompiled(
 	rwt datastore.ReadWriteTransaction,
 ) ([]*devinterface.DeveloperError, error) {
 	errors := make([]*devinterface.DeveloperError, 0, len(compiled.OrderedDefinitions))
-	resolver := namespace.ResolverForPredefinedDefinitions(namespace.PredefinedElements{
+	resolver := typesystem.ResolverForPredefinedDefinitions(typesystem.PredefinedElements{
 		Namespaces: compiled.ObjectDefinitions,
 		Caveats:    compiled.CaveatDefinitions,
 	})
@@ -261,7 +262,7 @@ func loadCompiled(
 	}
 
 	for _, nsDef := range compiled.ObjectDefinitions {
-		ts, terr := namespace.NewNamespaceTypeSystem(nsDef, resolver)
+		ts, terr := typesystem.NewNamespaceTypeSystem(nsDef, resolver)
 		if terr != nil {
 			errWithSource, ok := spiceerrors.AsErrorWithSource(terr)
 			if ok {
@@ -326,8 +327,9 @@ func distinguishGraphError(ctx context.Context, dispatchError error, source devi
 	var nsNotFoundError sharederrors.UnknownNamespaceError
 	var relNotFoundError sharederrors.UnknownRelationError
 	var invalidRelError relationships.ErrInvalidSubjectType
+	var maxDepthErr dispatch.MaxDepthExceededError
 
-	if errors.Is(dispatchError, dispatch.ErrMaxDepth) {
+	if errors.As(dispatchError, &maxDepthErr) {
 		return &devinterface.DeveloperError{
 			Message: dispatchError.Error(),
 			Source:  source,
@@ -384,12 +386,6 @@ func rewriteACLError(ctx context.Context, err error) error {
 	case errors.As(err, &relNotFoundError):
 		fallthrough
 
-	case errors.As(err, &maingraph.ErrRequestCanceled{}):
-		return status.Errorf(codes.Canceled, "request canceled: %s", err)
-
-	case errors.As(err, &maingraph.ErrInvalidArgument{}):
-		return status.Errorf(codes.InvalidArgument, "%s", err)
-
 	case errors.As(err, &datastore.ErrInvalidRevision{}):
 		return status.Errorf(codes.OutOfRange, "invalid zookie: %s", err)
 
@@ -399,6 +395,12 @@ func rewriteACLError(ctx context.Context, err error) error {
 	case errors.As(err, &maingraph.ErrAlwaysFail{}):
 		log.Ctx(ctx).Err(err).Msg("internal graph error in devcontext")
 		return status.Errorf(codes.Internal, "internal error: %s", err)
+
+	case errors.Is(err, context.DeadlineExceeded):
+		return status.Errorf(codes.DeadlineExceeded, "%s", err)
+
+	case errors.Is(err, context.Canceled):
+		return status.Errorf(codes.Canceled, "%s", err)
 
 	default:
 		log.Ctx(ctx).Err(err).Msg("unexpected graph error in devcontext")

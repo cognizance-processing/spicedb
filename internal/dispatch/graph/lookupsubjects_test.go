@@ -17,7 +17,6 @@ import (
 	datastoremw "spicedb/internal/middleware/datastore"
 	"spicedb/internal/testfixtures"
 	itestutil "spicedb/internal/testutil"
-	"spicedb/pkg/datastore"
 	corev1 "spicedb/pkg/proto/core/v1"
 	v1 "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/tuple"
@@ -207,7 +206,6 @@ func TestLookupSubjectsMaxDepth(t *testing.T) {
 	tpl := tuple.Parse("folder:oops#owner@folder:oops#owner")
 	revision, err := common.WriteTuples(ctx, ds, corev1.RelationTupleUpdate_CREATE, tpl)
 	require.NoError(err)
-	require.True(revision.GreaterThan(datastore.NoRevision))
 
 	dis := NewLocalOnlyDispatcher(10)
 	stream := dispatch.NewCollectingDispatchStream[*v1.DispatchLookupSubjectsResponse](ctx)
@@ -639,6 +637,73 @@ func TestCaveatedLookupSubjects(t *testing.T) {
 						caveatexpr("thirdcaveat"),
 						caveatexpr("anothercaveat"),
 					),
+				},
+			},
+		},
+		{
+			"arrow over different relations of the same subject",
+			`definition user {}
+	
+			 definition folder {
+				relation parent: folder
+				relation viewer: user
+				permission view = viewer
+			 }
+
+		 	 definition document {
+				relation folder: folder | folder#parent
+				permission view = folder->view
+  		 }`,
+			[]*corev1.RelationTuple{
+				tuple.MustParse("folder:folder1#viewer@user:tom"),
+				tuple.MustParse("folder:folder2#viewer@user:fred"),
+				tuple.MustParse("document:somedoc#folder@folder:folder1"),
+				tuple.MustParse("document:somedoc#folder@folder:folder2#parent"),
+			},
+			ONR("document", "somedoc", "view"),
+			RR("user", "..."),
+			[]*v1.FoundSubject{
+				{
+					SubjectId: "tom",
+				},
+				{
+					SubjectId: "fred",
+				},
+			},
+		},
+		{
+			"caveated arrow over different relations of the same subject",
+			`definition user {}
+	
+			 caveat somecaveat(somecondition int) {
+				somecondition == 42
+			 }
+
+			 definition folder {
+				relation parent: folder
+				relation viewer: user
+				permission view = viewer
+			 }
+
+		 	 definition document {
+				relation folder: folder | folder#parent with somecaveat
+				permission view = folder->view
+  		 }`,
+			[]*corev1.RelationTuple{
+				tuple.MustParse("folder:folder1#viewer@user:tom"),
+				tuple.MustParse("folder:folder2#viewer@user:fred"),
+				tuple.MustParse("document:somedoc#folder@folder:folder1"),
+				tuple.MustWithCaveat(tuple.MustParse("document:somedoc#folder@folder:folder2#parent"), "somecaveat"),
+			},
+			ONR("document", "somedoc", "view"),
+			RR("user", "..."),
+			[]*v1.FoundSubject{
+				{
+					SubjectId: "tom",
+				},
+				{
+					SubjectId:        "fred",
+					CaveatExpression: caveatexpr("somecaveat"),
 				},
 			},
 		},

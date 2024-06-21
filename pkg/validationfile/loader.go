@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"spicedb/pkg/util"
-
 	log "spicedb/internal/logging"
 	dsctx "spicedb/internal/middleware/datastore"
 	"spicedb/internal/namespace"
@@ -14,6 +12,11 @@ import (
 	"spicedb/pkg/datastore"
 	core "spicedb/pkg/proto/core/v1"
 	"spicedb/pkg/tuple"
+
+	"spicedb/pkg/genutil/slicez"
+	"spicedb/pkg/typesystem"
+
+	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
 )
 
 // PopulatedValidationFile contains the fully parsed information from a validation file.
@@ -100,14 +103,14 @@ func PopulateFromFilesContents(ctx context.Context, ds datastore.Datastore, file
 
 		// Parse relationships for updates.
 		for _, rel := range parsed.Relationships.Relationships {
-			tpl := tuple.MustFromRelationship(rel)
+			tpl := tuple.MustFromRelationship[*v1.ObjectReference, *v1.SubjectReference, *v1.ContextualizedCaveat](rel)
 			updates = append(updates, tuple.Touch(tpl))
 			tuples = append(tuples, tpl)
 		}
 	}
 
 	// Load the definitions and relationships into the datastore.
-	revision, err := ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
+	revision, err := ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
 		// Write the caveat definitions.
 		err := rwt.WriteCaveats(ctx, caveatDefs)
 		if err != nil {
@@ -116,8 +119,8 @@ func PopulateFromFilesContents(ctx context.Context, ds datastore.Datastore, file
 
 		// Validate and write the object definitions.
 		for _, objectDef := range objectDefs {
-			ts, err := namespace.NewNamespaceTypeSystem(objectDef,
-				namespace.ResolverForDatastoreReader(rwt).WithPredefinedElements(namespace.PredefinedElements{
+			ts, err := typesystem.NewNamespaceTypeSystem(objectDef,
+				typesystem.ResolverForDatastoreReader(rwt).WithPredefinedElements(typesystem.PredefinedElements{
 					Namespaces: objectDefs,
 				}))
 			if err != nil {
@@ -143,18 +146,22 @@ func PopulateFromFilesContents(ctx context.Context, ds datastore.Datastore, file
 		return err
 	})
 
-	util.ForEachChunk(updates, 500, func(updates []*core.RelationTupleUpdate) {
+	slicez.ForEachChunk(updates, 500, func(chunked []*core.RelationTupleUpdate) {
 		if err != nil {
 			return
 		}
 
-		revision, err = ds.ReadWriteTx(ctx, func(rwt datastore.ReadWriteTransaction) error {
-			err = relationships.ValidateRelationshipUpdates(ctx, rwt, updates)
+		chunkedTuples := make([]*core.RelationTuple, 0, len(chunked))
+		for _, update := range chunked {
+			chunkedTuples = append(chunkedTuples, update.Tuple)
+		}
+		revision, err = ds.ReadWriteTx(ctx, func(ctx context.Context, rwt datastore.ReadWriteTransaction) error {
+			err = relationships.ValidateRelationshipsForCreateOrTouch(ctx, rwt, chunkedTuples)
 			if err != nil {
 				return err
 			}
 
-			return rwt.WriteRelationships(ctx, updates)
+			return rwt.WriteRelationships(ctx, chunked)
 		})
 	})
 

@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	pgxcommon "spicedb/internal/datastore/postgres/common"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
 	core "spicedb/pkg/proto/core/v1"
 )
@@ -43,24 +44,23 @@ func (cr *crdbReader) ReadCaveatByName(ctx context.Context, name string) (*core.
 
 	var definitionBytes []byte
 	var timestamp time.Time
-	err = cr.executeWithTx(ctx, func(ctx context.Context, tx pgxcommon.DBReader) error {
-		if err := tx.QueryRow(ctx, sql, args...).Scan(&definitionBytes, &timestamp); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				err = datastore.NewCaveatNameNotFoundErr(name)
-			}
-			return err
-		}
-		return nil
-	})
+
+	err = cr.query.QueryRowFunc(ctx, func(ctx context.Context, row pgx.Row) error {
+		return row.Scan(&definitionBytes, &timestamp)
+	}, sql, args...)
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			err = datastore.NewCaveatNameNotFoundErr(name)
+		}
 		return nil, datastore.NoRevision, fmt.Errorf(errReadCaveat, name, err)
 	}
+
 	loaded := &core.CaveatDefinition{}
 	if err := loaded.UnmarshalVT(definitionBytes); err != nil {
 		return nil, datastore.NoRevision, fmt.Errorf(errReadCaveat, name, err)
 	}
 	cr.addOverlapKey(name)
-	return loaded, revisionFromTimestamp(timestamp), nil
+	return loaded, revisions.NewHLCForTime(timestamp), nil
 }
 
 func (cr *crdbReader) LookupCaveatsWithNames(ctx context.Context, caveatNames []string) ([]datastore.RevisionedCaveat, error) {
@@ -89,28 +89,23 @@ func (cr *crdbReader) lookupCaveats(ctx context.Context, caveatNames []string) (
 	if err != nil {
 		return nil, fmt.Errorf(errListCaveats, err)
 	}
+
 	var allDefinitionBytes []bytesAndTimestamp
 
-	err = cr.executeWithTx(ctx, func(ctx context.Context, tx pgxcommon.DBReader) error {
-		rows, err := tx.Query(ctx, sql, args...)
-		if err != nil {
-			return err
-		}
-		defer rows.Close()
-
+	err = cr.query.QueryFunc(ctx, func(ctx context.Context, rows pgx.Rows) error {
 		for rows.Next() {
 			var defBytes []byte
 			var name string
 			var timestamp time.Time
 			err = rows.Scan(&name, &defBytes, &timestamp)
 			if err != nil {
-				return err
+				return fmt.Errorf(errListCaveats, err)
 			}
 			allDefinitionBytes = append(allDefinitionBytes, bytesAndTimestamp{bytes: defBytes, timestamp: timestamp})
 			cr.addOverlapKey(name)
 		}
 		return nil
-	})
+	}, sql, args...)
 	if err != nil {
 		return nil, fmt.Errorf(errListCaveats, err)
 	}
@@ -123,7 +118,7 @@ func (cr *crdbReader) lookupCaveats(ctx context.Context, caveatNames []string) (
 		}
 		caveats = append(caveats, datastore.RevisionedCaveat{
 			Definition:          loaded,
-			LastWrittenRevision: revisionFromTimestamp(bat.timestamp),
+			LastWrittenRevision: revisions.NewHLCForTime(bat.timestamp),
 		})
 	}
 
@@ -155,12 +150,10 @@ func (rwt *crdbReadWriteTXN) WriteCaveats(ctx context.Context, caveats []*core.C
 	for _, val := range writtenCaveatNames {
 		rwt.addOverlapKey(val)
 	}
-	return rwt.executeWithTx(ctx, func(ctx context.Context, tx pgxcommon.DBReader) error {
-		if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
-			return fmt.Errorf(errWriteCaveat, err)
-		}
-		return nil
-	})
+	if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf(errWriteCaveat, err)
+	}
+	return nil
 }
 
 func (rwt *crdbReadWriteTXN) DeleteCaveats(ctx context.Context, names []string) error {
@@ -172,22 +165,8 @@ func (rwt *crdbReadWriteTXN) DeleteCaveats(ctx context.Context, names []string) 
 	for _, val := range names {
 		rwt.addOverlapKey(val)
 	}
-	return rwt.executeWithTx(ctx, func(ctx context.Context, tx pgxcommon.DBReader) error {
-		if _, err := tx.Exec(ctx, sql, args...); err != nil {
-			return fmt.Errorf(errDeleteCaveats, err)
-		}
-		return nil
-	})
-}
-
-func (cr *crdbReader) executeWithTx(ctx context.Context, f func(ctx context.Context, tx pgxcommon.DBReader) error) error {
-	return cr.execute(ctx, func(ctx context.Context) error {
-		tx, txCleanup, err := cr.txSource(ctx)
-		if err != nil {
-			return err
-		}
-		defer txCleanup(ctx)
-
-		return f(ctx, tx)
-	})
+	if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
+		return fmt.Errorf(errDeleteCaveats, err)
+	}
+	return nil
 }

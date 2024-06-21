@@ -32,6 +32,7 @@ func RunValidation(devContext *DevContext, validation *blocks.ParsedExpectedRela
 			Metadata: &v1.ResolverMeta{
 				AtRevision:     devContext.Revision.String(),
 				DepthRemaining: maxDispatchDepth,
+				TraversalBloom: v1.MustNewTraversalBloomFilter(uint(maxDispatchDepth)),
 			},
 			ExpansionMode: v1.DispatchExpandRequest_RECURSIVE,
 		})
@@ -143,6 +144,10 @@ func validateSubjects(onrKey blocks.ObjectRelation, fs developmentmembership.Fou
 		if isWildcard {
 			expectedExcludedStrings := toExpectedRelationshipsStrings(expectedExcludedSubjects)
 			foundExcludedONRStrings := toFoundRelationshipsStrings(foundExcludedSubjects)
+
+			sort.Strings(expectedExcludedStrings)
+			sort.Strings(foundExcludedONRStrings)
+
 			if !cmp.Equal(expectedExcludedStrings, foundExcludedONRStrings) {
 				failures = append(failures, &devinterface.DeveloperError{
 					Message: fmt.Sprintf("For object and permission/relation `%s`, found different excluded subjects for subject `%s`: Specified: `%s`, Computed: `%s`",

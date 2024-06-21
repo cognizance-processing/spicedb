@@ -44,12 +44,6 @@ type ExpandResult struct {
 	Err  error
 }
 
-// LookupResult is the data that is returned by a single lookup or sub-lookup.
-type LookupResult struct {
-	Resp *v1.DispatchLookupResponse
-	Err  error
-}
-
 // ReduceableExpandFunc is a function that can be bound to a execution context.
 type ReduceableExpandFunc func(ctx context.Context, resultChan chan<- ExpandResult)
 
@@ -69,14 +63,8 @@ func decrementDepth(md *v1.ResolverMeta) *v1.ResolverMeta {
 	return &v1.ResolverMeta{
 		AtRevision:     md.AtRevision,
 		DepthRemaining: md.DepthRemaining - 1,
+		TraversalBloom: md.TraversalBloom,
 	}
-}
-
-func max(x, y uint32) uint32 {
-	if x < y {
-		return y
-	}
-	return x
 }
 
 var emptyMetadata = &v1.ResponseMeta{}
@@ -98,6 +86,15 @@ func addCallToResponseMetadata(metadata *v1.ResponseMeta) *v1.ResponseMeta {
 	// + 1 for the current call.
 	return &v1.ResponseMeta{
 		DispatchCount:       metadata.DispatchCount + 1,
+		DepthRequired:       metadata.DepthRequired + 1,
+		CachedDispatchCount: metadata.CachedDispatchCount,
+		DebugInfo:           metadata.DebugInfo,
+	}
+}
+
+func addAdditionalDepthRequired(metadata *v1.ResponseMeta) *v1.ResponseMeta {
+	return &v1.ResponseMeta{
+		DispatchCount:       metadata.DispatchCount,
 		DepthRequired:       metadata.DepthRequired + 1,
 		CachedDispatchCount: metadata.CachedDispatchCount,
 		DebugInfo:           metadata.DebugInfo,

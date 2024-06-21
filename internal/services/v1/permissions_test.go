@@ -1,17 +1,16 @@
 package v1_test
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math/rand"
-	"sort"
+	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"spicedb/pkg/datastore"
 
 	"github.com/authzed/authzed-go/pkg/requestmeta"
 	"github.com/authzed/authzed-go/pkg/responsemeta"
@@ -19,20 +18,27 @@ import (
 	"github.com/authzed/grpcutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/types/known/structpb"
 
 	"spicedb/internal/datastore/memdb"
+	"spicedb/internal/namespace"
+	"spicedb/internal/services/shared"
 	v1svc "spicedb/internal/services/v1"
 	tf "spicedb/internal/testfixtures"
 	"spicedb/internal/testserver"
+	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
 	pgraph "spicedb/pkg/graph"
 	core "spicedb/pkg/proto/core/v1"
 	"spicedb/pkg/schemadsl/compiler"
 	"spicedb/pkg/schemadsl/input"
+	"spicedb/pkg/testutil"
 	"spicedb/pkg/tuple"
 	"spicedb/pkg/zedtoken"
 )
@@ -229,6 +235,13 @@ func TestCheckPermissions(t *testing.T) {
 			v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
 			codes.OK,
 		},
+		{
+			obj("document", "foo"),
+			"*",
+			sub("user", "bar", ""),
+			v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+			codes.InvalidArgument,
+		},
 	}
 
 	for _, delta := range testTimedeltas {
@@ -282,12 +295,11 @@ func TestCheckPermissions(t *testing.T) {
 								require.NoError(err)
 
 								if debug {
-									require.NotNil(encodedDebugInfo)
+									require.Nil(encodedDebugInfo)
 
-									debugInfo := &v1.DebugInformation{}
-									err = protojson.Unmarshal([]byte(*encodedDebugInfo), debugInfo)
-									require.NoError(err)
+									debugInfo := checkResp.DebugTrace
 									require.NotNil(debugInfo.Check)
+									require.NotNil(debugInfo.Check.Duration)
 									require.Equal(tuple.StringObjectRef(tc.resource), tuple.StringObjectRef(debugInfo.Check.Resource))
 									require.Equal(tc.permission, debugInfo.Check.Permission)
 									require.Equal(tuple.StringSubjectRef(tc.subject), tuple.StringSubjectRef(debugInfo.Check.Subject))
@@ -303,6 +315,31 @@ func TestCheckPermissions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCheckPermissionWithWildcardSubject(t *testing.T) {
+	require := require.New(t)
+	conn, cleanup, _, revision := testserver.NewTestServer(require, testTimedeltas[0], memdb.DisableGC, true, tf.StandardDatastoreWithData)
+	client := v1.NewPermissionsServiceClient(conn)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+	ctx = requestmeta.AddRequestHeaders(ctx, requestmeta.RequestDebugInformation)
+
+	_, err := client.CheckPermission(ctx, &v1.CheckPermissionRequest{
+		Consistency: &v1.Consistency{
+			Requirement: &v1.Consistency_AtLeastAsFresh{
+				AtLeastAsFresh: zedtoken.MustNewFromRevision(revision),
+			},
+		},
+		Resource:   obj("document", "masterplan"),
+		Permission: "view",
+		Subject:    sub("user", "*", ""),
+	})
+
+	require.Error(err)
+	require.ErrorContains(err, "invalid argument: cannot perform check on wildcard subject")
+	grpcutil.RequireStatus(t, codes.InvalidArgument, err)
 }
 
 func TestCheckPermissionWithDebugInfo(t *testing.T) {
@@ -332,135 +369,250 @@ func TestCheckPermissionWithDebugInfo(t *testing.T) {
 	encodedDebugInfo, err := responsemeta.GetResponseTrailerMetadataOrNil(trailer, responsemeta.DebugInformation)
 	require.NoError(err)
 
-	require.NotNil(encodedDebugInfo)
+	// debug info is returned empty to make sure clients are not broken with backward incompatible payloads
+	require.Nil(encodedDebugInfo)
 
-	debugInfo := &v1.DebugInformation{}
-	err = protojson.Unmarshal([]byte(*encodedDebugInfo), debugInfo)
-	require.NoError(err)
-
+	debugInfo := checkResp.DebugTrace
 	require.GreaterOrEqual(len(debugInfo.Check.GetSubProblems().Traces), 1)
 	require.NotEmpty(debugInfo.SchemaUsed)
 
 	// Compile the schema into the namespace definitions.
-	emptyDefaultPrefix := ""
 	compiled, err := compiler.Compile(compiler.InputSchema{
 		Source:       input.Source("schema"),
 		SchemaString: debugInfo.SchemaUsed,
-	}, &emptyDefaultPrefix)
+	}, compiler.AllowUnprefixedObjectType())
 	require.NoError(err, "Invalid schema: %s", debugInfo.SchemaUsed)
 	require.Equal(4, len(compiled.OrderedDefinitions))
 }
 
+func TestCheckPermissionWithDebugInfoInError(t *testing.T) {
+	req := require.New(t)
+	conn, cleanup, _, revision := testserver.NewTestServer(req, testTimedeltas[0], memdb.DisableGC, true,
+		func(ds datastore.Datastore, assertions *require.Assertions) (datastore.Datastore, datastore.Revision) {
+			return tf.DatastoreFromSchemaAndTestRelationships(
+				ds,
+				`definition user {}
+				
+				 definition document {
+					relation viewer: user | document#view
+					permission view = viewer
+				 }
+				`,
+				[]*core.RelationTuple{
+					tuple.MustParse("document:doc1#viewer@user:tom"),
+					tuple.MustParse("document:doc1#viewer@document:doc2#view"),
+					tuple.MustParse("document:doc2#viewer@document:doc3#view"),
+					tuple.MustParse("document:doc3#viewer@document:doc1#view"),
+				},
+				assertions,
+			)
+		},
+	)
+	client := v1.NewPermissionsServiceClient(conn)
+	t.Cleanup(cleanup)
+
+	ctx := context.Background()
+	ctx = requestmeta.AddRequestHeaders(ctx, requestmeta.RequestDebugInformation)
+
+	_, err := client.CheckPermission(ctx, &v1.CheckPermissionRequest{
+		Consistency: &v1.Consistency{
+			Requirement: &v1.Consistency_AtLeastAsFresh{
+				AtLeastAsFresh: zedtoken.MustNewFromRevision(revision),
+			},
+		},
+		Resource:   obj("document", "doc1"),
+		Permission: "view",
+		Subject:    sub("user", "fred", ""),
+	})
+
+	req.Error(err)
+	grpcutil.RequireStatus(t, codes.ResourceExhausted, err)
+
+	s, ok := status.FromError(err)
+	req.True(ok)
+
+	foundDebugInfo := false
+	for _, d := range s.Details() {
+		if errInfo, ok := d.(*errdetails.ErrorInfo); ok {
+			req.NotNil(errInfo.Metadata)
+			req.NotNil(errInfo.Metadata[shared.DebugTraceErrorDetailsKey])
+			req.NotEmpty(errInfo.Metadata[shared.DebugTraceErrorDetailsKey])
+
+			debugInfo := &v1.DebugInformation{}
+			err = prototext.Unmarshal([]byte(errInfo.Metadata[shared.DebugTraceErrorDetailsKey]), debugInfo)
+			req.NoError(err)
+
+			req.Equal(1, len(debugInfo.Check.GetSubProblems().Traces))
+			req.Equal(1, len(debugInfo.Check.GetSubProblems().Traces[0].GetSubProblems().Traces))
+
+			foundDebugInfo = true
+		}
+	}
+
+	req.True(foundDebugInfo)
+}
+
 func TestLookupResources(t *testing.T) {
 	testCases := []struct {
-		objectType        string
-		permission        string
-		subject           *v1.SubjectReference
-		expectedObjectIds []string
-		expectedErrorCode codes.Code
+		objectType           string
+		permission           string
+		subject              *v1.SubjectReference
+		expectedObjectIds    []string
+		expectedErrorCode    codes.Code
+		minimumDispatchCount int
+		maximumDispatchCount int
 	}{
+		{
+			"document", "viewer",
+			sub("user", "eng_lead", ""),
+			[]string{"masterplan"},
+			codes.OK,
+			1,
+			1,
+		},
 		{
 			"document", "view",
 			sub("user", "eng_lead", ""),
 			[]string{"masterplan"},
 			codes.OK,
+			2,
+			2,
 		},
 		{
 			"document", "view",
 			sub("user", "product_manager", ""),
 			[]string{"masterplan"},
 			codes.OK,
+			3,
+			3,
 		},
 		{
 			"document", "view",
 			sub("user", "chief_financial_officer", ""),
 			[]string{"masterplan", "healthplan"},
 			codes.OK,
+			3,
+			3,
 		},
 		{
 			"document", "view",
 			sub("user", "auditor", ""),
 			[]string{"masterplan", "companyplan"},
 			codes.OK,
+			5,
+			5,
 		},
 		{
 			"document", "view",
 			sub("user", "vp_product", ""),
 			[]string{"masterplan"},
 			codes.OK,
+			4,
+			4,
 		},
 		{
 			"document", "view",
 			sub("user", "legal", ""),
 			[]string{"masterplan", "companyplan"},
 			codes.OK,
+			4,
+			4,
 		},
 		{
 			"document", "view",
 			sub("user", "owner", ""),
-			[]string{"masterplan", "companyplan"},
+			[]string{"masterplan", "companyplan", "ownerplan"},
 			codes.OK,
+			6,
+			6,
 		},
 		{
 			"document", "view",
 			sub("user", "villain", ""),
 			nil,
 			codes.OK,
+			1,
+			1,
 		},
 		{
 			"document", "view",
 			sub("user", "unknowngal", ""),
 			nil,
 			codes.OK,
+			1,
+			1,
 		},
-
 		{
 			"document", "view_and_edit",
 			sub("user", "eng_lead", ""),
 			nil,
 			codes.OK,
+			1,
+			1,
 		},
 		{
 			"document", "view_and_edit",
 			sub("user", "multiroleguy", ""),
 			[]string{"specialplan"},
 			codes.OK,
+			6,
+			7,
 		},
 		{
 			"document", "view_and_edit",
 			sub("user", "missingrolegal", ""),
 			nil,
 			codes.OK,
+			1,
+			1,
 		},
 		{
 			"document", "invalidrelation",
 			sub("user", "missingrolegal", ""),
 			[]string{},
 			codes.FailedPrecondition,
+			1,
+			1,
 		},
 		{
 			"document", "view_and_edit",
 			sub("user", "someuser", "invalidrelation"),
 			[]string{},
 			codes.FailedPrecondition,
+			0,
+			0,
 		},
 		{
 			"invalidnamespace", "view_and_edit",
 			sub("user", "someuser", ""),
 			[]string{},
 			codes.FailedPrecondition,
+			0,
+			0,
 		},
 		{
 			"document", "view_and_edit",
 			sub("invalidnamespace", "someuser", ""),
 			[]string{},
 			codes.FailedPrecondition,
+			0,
+			0,
 		},
 		{
 			"document", "view_and_edit",
 			sub("user", "*", ""),
 			[]string{},
 			codes.InvalidArgument,
+			0,
+			0,
+		},
+		{
+			"document", "*",
+			sub("user", "someuser", ""),
+			[]string{},
+			codes.InvalidArgument,
+			0,
+			0,
 		},
 	}
 
@@ -504,14 +656,16 @@ func TestLookupResources(t *testing.T) {
 							resolvedObjectIds = append(resolvedObjectIds, resp.ResourceObjectId)
 						}
 
-						sort.Strings(tc.expectedObjectIds)
-						sort.Strings(resolvedObjectIds)
+						slices.Sort(tc.expectedObjectIds)
+						slices.Sort(resolvedObjectIds)
 
 						require.Equal(tc.expectedObjectIds, resolvedObjectIds)
 
 						dispatchCount, err := responsemeta.GetIntResponseTrailerMetadata(trailer, responsemeta.DispatchedOperationsCount)
 						require.NoError(err)
 						require.GreaterOrEqual(dispatchCount, 0)
+						require.LessOrEqual(dispatchCount, tc.maximumDispatchCount)
+						require.GreaterOrEqual(dispatchCount, tc.minimumDispatchCount)
 					} else {
 						_, err := lookupClient.Recv()
 						grpcutil.RequireStatus(t, tc.expectedErrorCode, err)
@@ -535,6 +689,7 @@ func TestExpand(t *testing.T) {
 		{"document", "masterplan", "fakerelation", 0, codes.FailedPrecondition},
 		{"fake", "masterplan", "owner", 0, codes.FailedPrecondition},
 		{"document", "", "owner", 1, codes.InvalidArgument},
+		{"document", "somedoc", "*", 1, codes.InvalidArgument},
 	}
 
 	for _, delta := range testTimedeltas {
@@ -769,6 +924,14 @@ func TestLookupSubjects(t *testing.T) {
 			nil,
 			codes.FailedPrecondition,
 		},
+		{
+			obj("document", "specialplan"),
+			"*",
+			"user",
+			"",
+			nil,
+			codes.InvalidArgument,
+		},
 	}
 
 	for _, delta := range testTimedeltas {
@@ -812,8 +975,8 @@ func TestLookupSubjects(t *testing.T) {
 							resolvedObjectIds = append(resolvedObjectIds, resp.Subject.SubjectObjectId)
 						}
 
-						sort.Strings(tc.expectedSubjectIds)
-						sort.Strings(resolvedObjectIds)
+						slices.Sort(tc.expectedSubjectIds)
+						slices.Sort(resolvedObjectIds)
 
 						require.Equal(tc.expectedSubjectIds, resolvedObjectIds)
 
@@ -1029,9 +1192,12 @@ func TestLookupResourcesWithCaveats(t *testing.T) {
 		responses = append(responses, res)
 	}
 
-	sort.Sort(byIDAndPermission(responses))
+	slices.SortFunc(responses, byIDAndPermission)
 
-	require.Equal(t, 2, len(responses))
+	// NOTE: due to the order of the deduplication of dispatching in reachable resources, this can return the conditional
+	// result more than once, as per cursored LR. Therefore, filter in that case.
+	require.GreaterOrEqual(t, 3, len(responses))
+	require.LessOrEqual(t, 2, len(responses))
 
 	require.Equal(t, "first", responses[0].ResourceObjectId)
 	require.Equal(t, v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION, responses[0].Permissionship)
@@ -1072,27 +1238,22 @@ func TestLookupResourcesWithCaveats(t *testing.T) {
 		responses = append(responses, res)
 	}
 
-	sort.Sort(byIDAndPermission(responses))
-
 	require.Equal(t, 2, len(responses))
+	slices.SortFunc(responses, byIDAndPermission)
 
-	require.Equal(t, "first", responses[0].ResourceObjectId)
-	require.Equal(t, v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION, responses[0].Permissionship)
+	require.Equal(t, "first", responses[0].ResourceObjectId)                                                    // nolint: gosec
+	require.Equal(t, v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION, responses[0].Permissionship) // nolint: gosec
 
-	require.Equal(t, "second", responses[1].ResourceObjectId)
-	require.Equal(t, v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION, responses[1].Permissionship)
+	require.Equal(t, "second", responses[1].ResourceObjectId)                                                   // nolint: gosec
+	require.Equal(t, v1.LookupPermissionship_LOOKUP_PERMISSIONSHIP_HAS_PERMISSION, responses[1].Permissionship) // nolint: gosec
 }
 
-type byIDAndPermission []*v1.LookupResourcesResponse
-
-func (a byIDAndPermission) Len() int { return len(a) }
-func (a byIDAndPermission) Less(i, j int) bool {
+func byIDAndPermission(a, b *v1.LookupResourcesResponse) int {
 	return strings.Compare(
-		fmt.Sprintf("%s:%v", a[i].ResourceObjectId, a[i].Permissionship),
-		fmt.Sprintf("%s:%v", a[j].ResourceObjectId, a[j].Permissionship),
-	) < 0
+		fmt.Sprintf("%s:%v", a.ResourceObjectId, a.Permissionship),
+		fmt.Sprintf("%s:%v", b.ResourceObjectId, b.Permissionship),
+	)
 }
-func (a byIDAndPermission) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
 
 func TestLookupSubjectsWithCaveats(t *testing.T) {
 	req := require.New(t)
@@ -1158,8 +1319,8 @@ func TestLookupSubjectsWithCaveats(t *testing.T) {
 		{"tom", false},
 	}
 
-	sort.Sort(sortByID(resolvedSubjects))
-	sort.Sort(sortByID(expectedSubjects))
+	slices.SortFunc(resolvedSubjects, bySubjectID)
+	slices.SortFunc(expectedSubjects, bySubjectID)
 
 	req.Equal(expectedSubjects, resolvedSubjects)
 
@@ -1203,8 +1364,8 @@ func TestLookupSubjectsWithCaveats(t *testing.T) {
 		{"tom", false},
 	}
 
-	sort.Sort(sortByID(resolvedSubjects))
-	sort.Sort(sortByID(expectedSubjects))
+	slices.SortFunc(resolvedSubjects, bySubjectID)
+	slices.SortFunc(expectedSubjects, bySubjectID)
 
 	req.Equal(expectedSubjects, resolvedSubjects)
 
@@ -1247,8 +1408,8 @@ func TestLookupSubjectsWithCaveats(t *testing.T) {
 		{"tom", false},
 	}
 
-	sort.Sort(sortByID(resolvedSubjects))
-	sort.Sort(sortByID(expectedSubjects))
+	slices.SortFunc(resolvedSubjects, bySubjectID)
+	slices.SortFunc(expectedSubjects, bySubjectID)
 
 	req.Equal(expectedSubjects, resolvedSubjects)
 }
@@ -1363,11 +1524,9 @@ type expectedSubject struct {
 	isConditional bool
 }
 
-type sortByID []expectedSubject
-
-func (a sortByID) Len() int           { return len(a) }
-func (a sortByID) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
-func (a sortByID) Less(i, j int) bool { return strings.Compare(a[i].subjectID, a[j].subjectID) < 0 }
+func bySubjectID(a, b expectedSubject) int {
+	return cmp.Compare(a.subjectID, b.subjectID)
+}
 
 func generateMap(length int) map[string]any {
 	output := make(map[string]any, length)
@@ -1402,4 +1561,463 @@ func TestGetCaveatContext(t *testing.T) {
 	caveatMap, err = v1svc.GetCaveatContext(context.Background(), strct, -1)
 	require.NoError(t, err)
 	require.Contains(t, caveatMap, "foo")
+}
+
+func TestLookupResourcesWithCursors(t *testing.T) {
+	testCases := []struct {
+		objectType        string
+		permission        string
+		subject           *v1.SubjectReference
+		expectedObjectIds []string
+	}{
+		{
+			"document", "view",
+			sub("user", "eng_lead", ""),
+			[]string{"masterplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "product_manager", ""),
+			[]string{"masterplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "chief_financial_officer", ""),
+			[]string{"masterplan", "healthplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "auditor", ""),
+			[]string{"masterplan", "companyplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "vp_product", ""),
+			[]string{"masterplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "legal", ""),
+			[]string{"masterplan", "companyplan"},
+		},
+		{
+			"document", "view",
+			sub("user", "owner", ""),
+			[]string{"masterplan", "companyplan", "ownerplan"},
+		},
+	}
+
+	for _, delta := range testTimedeltas {
+		delta := delta
+		t.Run(fmt.Sprintf("fuzz%d", delta/time.Millisecond), func(t *testing.T) {
+			for _, limit := range []int{1, 2, 5, 10, 100} {
+				limit := limit
+				t.Run(fmt.Sprintf("limit%d", limit), func(t *testing.T) {
+					for _, tc := range testCases {
+						tc := tc
+						t.Run(fmt.Sprintf("%s::%s from %s:%s#%s", tc.objectType, tc.permission, tc.subject.Object.ObjectType, tc.subject.Object.ObjectId, tc.subject.OptionalRelation), func(t *testing.T) {
+							require := require.New(t)
+							conn, cleanup, _, revision := testserver.NewTestServer(require, delta, memdb.DisableGC, true, tf.StandardDatastoreWithData)
+							client := v1.NewPermissionsServiceClient(conn)
+							t.Cleanup(func() {
+								goleak.VerifyNone(t, goleak.IgnoreCurrent())
+							})
+							t.Cleanup(cleanup)
+
+							var currentCursor *v1.Cursor
+							foundObjectIds := mapz.NewSet[string]()
+
+							for i := 0; i < 5; i++ {
+								var trailer metadata.MD
+								lookupClient, err := client.LookupResources(context.Background(), &v1.LookupResourcesRequest{
+									ResourceObjectType: tc.objectType,
+									Permission:         tc.permission,
+									Subject:            tc.subject,
+									Consistency: &v1.Consistency{
+										Requirement: &v1.Consistency_AtLeastAsFresh{
+											AtLeastAsFresh: zedtoken.MustNewFromRevision(revision),
+										},
+									},
+									OptionalLimit:  uint32(limit),
+									OptionalCursor: currentCursor,
+								}, grpc.Trailer(&trailer))
+
+								require.NoError(err)
+
+								var locallyResolvedObjectIds []string
+								for {
+									resp, err := lookupClient.Recv()
+									if errors.Is(err, io.EOF) {
+										break
+									}
+
+									require.NoError(err)
+
+									locallyResolvedObjectIds = append(locallyResolvedObjectIds, resp.ResourceObjectId)
+									foundObjectIds.Add(resp.ResourceObjectId)
+									currentCursor = resp.AfterResultCursor
+								}
+
+								require.LessOrEqual(len(locallyResolvedObjectIds), limit)
+								if len(locallyResolvedObjectIds) < limit {
+									break
+								}
+							}
+
+							resolvedObjectIds := foundObjectIds.AsSlice()
+							slices.Sort(tc.expectedObjectIds)
+							slices.Sort(resolvedObjectIds)
+
+							require.Equal(tc.expectedObjectIds, resolvedObjectIds)
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestLookupResourcesDeduplication(t *testing.T) {
+	req := require.New(t)
+	conn, cleanup, _, revision := testserver.NewTestServer(req, testTimedeltas[0], memdb.DisableGC, true,
+		func(ds datastore.Datastore, require *require.Assertions) (datastore.Datastore, datastore.Revision) {
+			return tf.DatastoreFromSchemaAndTestRelationships(ds, `
+				definition user {}
+
+				definition document {
+					relation viewer: user
+					relation editor: user
+					permission view = viewer + editor
+				}
+			`, []*core.RelationTuple{
+				tuple.MustParse("document:first#viewer@user:tom"),
+				tuple.MustParse("document:first#editor@user:tom"),
+			}, require)
+		})
+
+	client := v1.NewPermissionsServiceClient(conn)
+	t.Cleanup(cleanup)
+
+	lookupClient, err := client.LookupResources(context.Background(), &v1.LookupResourcesRequest{
+		ResourceObjectType: "document",
+		Permission:         "view",
+		Subject:            sub("user", "tom", ""),
+		Consistency: &v1.Consistency{
+			Requirement: &v1.Consistency_AtLeastAsFresh{
+				AtLeastAsFresh: zedtoken.MustNewFromRevision(revision),
+			},
+		},
+	})
+
+	require.NoError(t, err)
+
+	foundObjectIds := mapz.NewSet[string]()
+	for {
+		resp, err := lookupClient.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+
+		require.NoError(t, err)
+		require.True(t, foundObjectIds.Add(resp.ResourceObjectId))
+	}
+
+	require.Equal(t, []string{"first"}, foundObjectIds.AsSlice())
+}
+
+func TestLookupResourcesBeyondAllowedLimit(t *testing.T) {
+	require := require.New(t)
+	conn, cleanup, _, _ := testserver.NewTestServer(require, 0, memdb.DisableGC, true, tf.StandardDatastoreWithData)
+	client := v1.NewPermissionsServiceClient(conn)
+	t.Cleanup(cleanup)
+
+	resp, err := client.LookupResources(context.Background(), &v1.LookupResourcesRequest{
+		ResourceObjectType: "document",
+		Permission:         "view",
+		Subject:            sub("user", "tom", ""),
+		OptionalLimit:      1005,
+	})
+	require.NoError(err)
+
+	_, err = resp.Recv()
+	require.Error(err)
+	require.Contains(err.Error(), "provided limit 1005 is greater than maximum allowed of 1000")
+}
+
+func TestCheckBulkPermissions(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+
+	conn, cleanup, _, _ := testserver.NewTestServer(require.New(t), 0, memdb.DisableGC, true, tf.StandardDatastoreWithCaveatedData)
+	client := v1.NewPermissionsServiceClient(conn)
+	defer cleanup()
+
+	testCases := []struct {
+		name                  string
+		requests              []string
+		response              []bulkCheckTest
+		expectedDispatchCount int
+	}{
+		{
+			name: "same resource and permission, different subjects",
+			requests: []string{
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:masterplan#view@user:product_manager[test:{"secret": "1234"}]`,
+				`document:masterplan#view@user:villain[test:{"secret": "1234"}]`,
+			},
+			response: []bulkCheckTest{
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req:  `document:masterplan#view@user:product_manager[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req:  `document:masterplan#view@user:villain[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+				},
+			},
+			expectedDispatchCount: 49,
+		},
+		{
+			name: "different resources, same permission and subject",
+			requests: []string{
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:companyplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:healthplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+			},
+			response: []bulkCheckTest{
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req:  `document:companyplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+				},
+				{
+					req:  `document:healthplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+				},
+			},
+			expectedDispatchCount: 18,
+		},
+		{
+			name: "some items fail",
+			requests: []string{
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				"fake:fake#fake@fake:fake",
+				"superfake:plan#view@user:eng_lead",
+			},
+			response: []bulkCheckTest{
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req: "fake:fake#fake@fake:fake",
+					err: namespace.NewNamespaceNotFoundErr("fake"),
+				},
+				{
+					req: "superfake:plan#view@user:eng_lead",
+					err: namespace.NewNamespaceNotFoundErr("superfake"),
+				},
+			},
+			expectedDispatchCount: 17,
+		},
+		{
+			name: "different caveat context is not clustered",
+			requests: []string{
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:companyplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:masterplan#view@user:eng_lead[test:{"secret": "4321"}]`,
+				`document:masterplan#view@user:eng_lead`,
+			},
+			response: []bulkCheckTest{
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req:  `document:companyplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+				},
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "4321"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+				},
+				{
+					req:     `document:masterplan#view@user:eng_lead`,
+					resp:    v1.CheckPermissionResponse_PERMISSIONSHIP_CONDITIONAL_PERMISSION,
+					partial: []string{"secret"},
+				},
+			},
+			expectedDispatchCount: 50,
+		},
+		{
+			name: "namespace validation",
+			requests: []string{
+				"document:masterplan#view@fake:fake",
+				"fake:fake#fake@user:eng_lead",
+			},
+			response: []bulkCheckTest{
+				{
+					req: "document:masterplan#view@fake:fake",
+					err: namespace.NewNamespaceNotFoundErr("fake"),
+				},
+				{
+					req: "fake:fake#fake@user:eng_lead",
+					err: namespace.NewNamespaceNotFoundErr("fake"),
+				},
+			},
+			expectedDispatchCount: 1,
+		},
+		{
+			name: "chunking test",
+			requests: (func() []string {
+				toReturn := make([]string, 0, datastore.FilterMaximumIDCount+5)
+				for i := 0; i < int(datastore.FilterMaximumIDCount+5); i++ {
+					toReturn = append(toReturn, fmt.Sprintf(`document:masterplan-%d#view@user:eng_lead`, i))
+				}
+
+				return toReturn
+			})(),
+			response: (func() []bulkCheckTest {
+				toReturn := make([]bulkCheckTest, 0, datastore.FilterMaximumIDCount+5)
+				for i := 0; i < int(datastore.FilterMaximumIDCount+5); i++ {
+					toReturn = append(toReturn, bulkCheckTest{
+						req:  fmt.Sprintf(`document:masterplan-%d#view@user:eng_lead`, i),
+						resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+					})
+				}
+
+				return toReturn
+			})(),
+			expectedDispatchCount: 11,
+		},
+		{
+			name: "chunking test with errors",
+			requests: (func() []string {
+				toReturn := make([]string, 0, datastore.FilterMaximumIDCount+6)
+				toReturn = append(toReturn, `nondoc:masterplan#view@user:eng_lead`)
+
+				for i := 0; i < int(datastore.FilterMaximumIDCount+5); i++ {
+					toReturn = append(toReturn, fmt.Sprintf(`document:masterplan-%d#view@user:eng_lead`, i))
+				}
+
+				return toReturn
+			})(),
+			response: (func() []bulkCheckTest {
+				toReturn := make([]bulkCheckTest, 0, datastore.FilterMaximumIDCount+6)
+				toReturn = append(toReturn, bulkCheckTest{
+					req: `nondoc:masterplan#view@user:eng_lead`,
+					err: namespace.NewNamespaceNotFoundErr("nondoc"),
+				})
+
+				for i := 0; i < int(datastore.FilterMaximumIDCount+5); i++ {
+					toReturn = append(toReturn, bulkCheckTest{
+						req:  fmt.Sprintf(`document:masterplan-%d#view@user:eng_lead`, i),
+						resp: v1.CheckPermissionResponse_PERMISSIONSHIP_NO_PERMISSION,
+					})
+				}
+
+				return toReturn
+			})(),
+			expectedDispatchCount: 11,
+		},
+		{
+			name: "same resource and permission with same subject, repeated",
+			requests: []string{
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+				`document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+			},
+			response: []bulkCheckTest{
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+				{
+					req:  `document:masterplan#view@user:eng_lead[test:{"secret": "1234"}]`,
+					resp: v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+				},
+			},
+			expectedDispatchCount: 17,
+		},
+	}
+
+	for _, tt := range testCases {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			req := v1.CheckBulkPermissionsRequest{
+				Consistency: &v1.Consistency{
+					Requirement: &v1.Consistency_FullyConsistent{FullyConsistent: true},
+				},
+				Items: make([]*v1.CheckBulkPermissionsRequestItem, 0, len(tt.requests)),
+			}
+
+			for _, r := range tt.requests {
+				req.Items = append(req.Items, relToCheckBulkRequestItem(r))
+			}
+
+			expected := make([]*v1.CheckBulkPermissionsPair, 0, len(tt.response))
+			for _, r := range tt.response {
+				reqRel := tuple.ParseRel(r.req)
+				resp := &v1.CheckBulkPermissionsPair_Item{
+					Item: &v1.CheckBulkPermissionsResponseItem{
+						Permissionship: r.resp,
+					},
+				}
+				pair := &v1.CheckBulkPermissionsPair{
+					Request: &v1.CheckBulkPermissionsRequestItem{
+						Resource:   reqRel.Resource,
+						Permission: reqRel.Relation,
+						Subject:    reqRel.Subject,
+					},
+					Response: resp,
+				}
+				if reqRel.OptionalCaveat != nil {
+					pair.Request.Context = reqRel.OptionalCaveat.Context
+				}
+				if len(r.partial) > 0 {
+					resp.Item.PartialCaveatInfo = &v1.PartialCaveatInfo{
+						MissingRequiredContext: r.partial,
+					}
+				}
+
+				if r.err != nil {
+					rewritten := shared.RewriteError(context.Background(), r.err, &shared.ConfigForErrors{})
+					s, ok := status.FromError(rewritten)
+					require.True(t, ok, "expected provided error to be status")
+					pair.Response = &v1.CheckBulkPermissionsPair_Error{
+						Error: s.Proto(),
+					}
+				}
+				expected = append(expected, pair)
+			}
+
+			var trailer metadata.MD
+			actual, err := client.CheckBulkPermissions(context.Background(), &req, grpc.Trailer(&trailer))
+			require.NoError(t, err)
+
+			dispatchCount, err := responsemeta.GetIntResponseTrailerMetadata(trailer, responsemeta.DispatchedOperationsCount)
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedDispatchCount, dispatchCount)
+
+			testutil.RequireProtoSlicesEqual(t, expected, actual.Pairs, nil, "response bulk check pairs did not match")
+		})
+	}
+}
+
+func relToCheckBulkRequestItem(rel string) *v1.CheckBulkPermissionsRequestItem {
+	r := tuple.ParseRel(rel)
+	item := &v1.CheckBulkPermissionsRequestItem{
+		Resource:   r.Resource,
+		Permission: r.Relation,
+		Subject:    r.Subject,
+	}
+	if r.OptionalCaveat != nil {
+		item.Context = r.OptionalCaveat.Context
+	}
+	return item
 }

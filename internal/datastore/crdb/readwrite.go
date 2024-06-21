@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	sq "github.com/Masterminds/squirrel"
 	v1 "github.com/authzed/authzed-go/proto/authzed/api/v1"
@@ -15,6 +16,9 @@ import (
 	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
 	core "spicedb/pkg/proto/core/v1"
+
+	"spicedb/internal/datastore/revisions"
+	"spicedb/pkg/datastore/options"
 )
 
 const (
@@ -22,6 +26,7 @@ const (
 	errUnableToDeleteConfig        = "unable to delete namespace config: %w"
 	errUnableToWriteRelationships  = "unable to write relationships: %w"
 	errUnableToDeleteRelationships = "unable to delete relationships: %w"
+	errUnableToSerializeFilter     = "unable to serialize relationship filter: %w"
 )
 
 var (
@@ -47,7 +52,7 @@ type crdbReadWriteTXN struct {
 
 var (
 	upsertTupleSuffix = fmt.Sprintf(
-		"ON CONFLICT (%s,%s,%s,%s,%s,%s) DO UPDATE SET %s = now(), %s = excluded.%s, %s = excluded.%s",
+		"ON CONFLICT (%s,%s,%s,%s,%s,%s) DO UPDATE SET %s = now(), %s = excluded.%s, %s = excluded.%s WHERE (relation_tuple.%s <> excluded.%s OR relation_tuple.%s <> excluded.%s)",
 		colNamespace,
 		colObjectID,
 		colRelation,
@@ -55,6 +60,10 @@ var (
 		colUsersetObjectID,
 		colUsersetRelation,
 		colTimestamp,
+		colCaveatContextName,
+		colCaveatContextName,
+		colCaveatContext,
+		colCaveatContext,
 		colCaveatContextName,
 		colCaveatContextName,
 		colCaveatContext,
@@ -83,7 +92,114 @@ var (
 		colTransactionKey,
 		colTimestamp,
 	)
+
+	queryWriteCounter = psql.Insert(tableRelationshipCounter).Columns(
+		colCounterName,
+		colCounterSerializedFilter,
+		colCounterCurrentCount,
+		colCounterUpdatedAt,
+	)
+
+	queryUpdateCounter = psql.Update(tableRelationshipCounter)
+
+	queryDeleteCounter = psql.Delete(tableRelationshipCounter)
 )
+
+func (rwt *crdbReadWriteTXN) RegisterCounter(ctx context.Context, name string, filter *core.RelationshipFilter) error {
+	counters, err := rwt.lookupCounters(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if len(counters) > 0 {
+		return datastore.NewCounterAlreadyRegisteredErr(name, filter)
+	}
+
+	// Add the counter to the table.
+	serialized, err := filter.MarshalVT()
+	if err != nil {
+		return fmt.Errorf(errUnableToSerializeFilter, err)
+	}
+
+	sql, args, err := queryWriteCounter.Values(
+		name,
+		serialized,
+		0,
+		nil,
+	).ToSql()
+	if err != nil {
+		return fmt.Errorf("unable to create counter SQL: %w", err)
+	}
+
+	_, err = rwt.tx.Exec(ctx, sql, args...)
+	if err != nil {
+		// If this is a constraint violation, return that the filter is already registered.
+		if pgxcommon.IsConstraintFailureError(err) {
+			return datastore.NewCounterAlreadyRegisteredErr(name, filter)
+		}
+
+		return fmt.Errorf("unable to register counter: %w", err)
+	}
+
+	return nil
+}
+
+func (rwt *crdbReadWriteTXN) UnregisterCounter(ctx context.Context, name string) error {
+	counters, err := rwt.lookupCounters(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if len(counters) == 0 {
+		return datastore.NewCounterNotRegisteredErr(name)
+	}
+
+	// Remove the counter from the table.
+	sql, args, err := queryDeleteCounter.Where(sq.Eq{colCounterName: name}).ToSql()
+	if err != nil {
+		return fmt.Errorf("unable to unregister counter: %w", err)
+	}
+
+	_, err = rwt.tx.Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("unable to unregister counter: %w", err)
+	}
+
+	return nil
+}
+
+func (rwt *crdbReadWriteTXN) StoreCounterValue(ctx context.Context, name string, value int, computedAtRevision datastore.Revision) error {
+	counters, err := rwt.lookupCounters(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if len(counters) == 0 {
+		return datastore.NewCounterNotRegisteredErr(name)
+	}
+
+	computedAtRevisionTimestamp, err := computedAtRevision.(revisions.HLCRevision).AsDecimal()
+	if err != nil {
+		return fmt.Errorf("unable to store counter value: %w", err)
+	}
+
+	// Update the counter in the table.
+	sql, args, err := queryUpdateCounter.
+		Set(colCounterCurrentCount, value).
+		Set(colCounterUpdatedAt, computedAtRevisionTimestamp).
+		Where(sq.Eq{colCounterName: name}).
+		ToSql()
+	if err != nil {
+		return fmt.Errorf("unable to store counter value: %w", err)
+	}
+
+	_, err = rwt.tx.Exec(ctx, sql, args...)
+	if err != nil {
+		return fmt.Errorf("unable to store counter value: %w", err)
+	}
+
+	return nil
+}
 
 func (rwt *crdbReadWriteTXN) WriteRelationships(ctx context.Context, mutations []*core.RelationTupleUpdate) error {
 	bulkWrite := queryWriteTuple
@@ -91,6 +207,10 @@ func (rwt *crdbReadWriteTXN) WriteRelationships(ctx context.Context, mutations [
 
 	bulkTouch := queryTouchTuple
 	var bulkTouchCount int64
+
+	bulkDelete := queryDeleteTuples
+	bulkDeleteOr := sq.Or{}
+	var bulkDeleteCount int64
 
 	// Process the actual updates
 	for _, mutation := range mutations {
@@ -135,17 +255,24 @@ func (rwt *crdbReadWriteTXN) WriteRelationships(ctx context.Context, mutations [
 			bulkWriteCount++
 		case core.RelationTupleUpdate_DELETE:
 			rwt.relCountChange--
-			sql, args, err := queryDeleteTuples.Where(exactRelationshipClause(rel)).ToSql()
-			if err != nil {
-				return fmt.Errorf(errUnableToWriteRelationships, err)
-			}
+			bulkDeleteOr = append(bulkDeleteOr, exactRelationshipClause(rel))
+			bulkDeleteCount++
 
-			if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
-				return fmt.Errorf(errUnableToWriteRelationships, err)
-			}
 		default:
 			log.Ctx(ctx).Error().Stringer("operation", mutation.Operation).Msg("unknown operation type")
 			return fmt.Errorf("unknown mutation operation: %s", mutation.Operation)
+		}
+	}
+
+	if bulkDeleteCount > 0 {
+		bulkDelete = bulkDelete.Where(bulkDeleteOr)
+		sql, args, err := bulkDelete.ToSql()
+		if err != nil {
+			return fmt.Errorf(errUnableToWriteRelationships, err)
+		}
+
+		if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
+			return fmt.Errorf(errUnableToWriteRelationships, err)
 		}
 	}
 
@@ -164,12 +291,6 @@ func (rwt *crdbReadWriteTXN) WriteRelationships(ctx context.Context, mutations [
 		}
 
 		if _, err := rwt.tx.Exec(ctx, sql, args...); err != nil {
-			// If a unique constraint violation is returned, then its likely that the cause
-			// was an existing relationship given as a CREATE.
-			if cerr := pgxcommon.ConvertToWriteConstraintError(livingTupleConstraint, err); cerr != nil {
-				return cerr
-			}
-
 			return fmt.Errorf(errUnableToWriteRelationships, err)
 		}
 	}
@@ -188,15 +309,27 @@ func exactRelationshipClause(r *core.RelationTuple) sq.Eq {
 	}
 }
 
-func (rwt *crdbReadWriteTXN) DeleteRelationships(ctx context.Context, filter *v1.RelationshipFilter) error {
+func (rwt *crdbReadWriteTXN) DeleteRelationships(ctx context.Context, filter *v1.RelationshipFilter, opts ...options.DeleteOptionsOption) (bool, error) {
 	// Add clauses for the ResourceFilter
-	query := queryDeleteTuples.Where(sq.Eq{colNamespace: filter.ResourceType})
+	query := queryDeleteTuples
+
+	if filter.ResourceType != "" {
+		query = query.Where(sq.Eq{colNamespace: filter.ResourceType})
+	}
 	if filter.OptionalResourceId != "" {
 		query = query.Where(sq.Eq{colObjectID: filter.OptionalResourceId})
 	}
 	if filter.OptionalRelation != "" {
 		query = query.Where(sq.Eq{colRelation: filter.OptionalRelation})
 	}
+	if filter.OptionalResourceIdPrefix != "" {
+		if strings.Contains(filter.OptionalResourceIdPrefix, "%") {
+			return false, fmt.Errorf("unable to delete relationships with a prefix containing the %% character")
+		}
+
+		query = query.Where(sq.Like{colObjectID: filter.OptionalResourceIdPrefix + "%"})
+	}
+
 	rwt.addOverlapKey(filter.ResourceType)
 
 	// Add clauses for the SubjectFilter
@@ -210,19 +343,34 @@ func (rwt *crdbReadWriteTXN) DeleteRelationships(ctx context.Context, filter *v1
 		}
 		rwt.addOverlapKey(subjectFilter.SubjectType)
 	}
+
+	// Add the limit, if any.
+	delOpts := options.NewDeleteOptionsWithOptionsAndDefaults(opts...)
+	var delLimit uint64
+	if delOpts.DeleteLimit != nil && *delOpts.DeleteLimit > 0 {
+		delLimit = *delOpts.DeleteLimit
+	}
+
+	if delLimit > 0 {
+		query = query.Limit(delLimit)
+	}
+
 	sql, args, err := query.ToSql()
 	if err != nil {
-		return fmt.Errorf(errUnableToDeleteRelationships, err)
+		return false, fmt.Errorf(errUnableToDeleteRelationships, err)
 	}
 
 	modified, err := rwt.tx.Exec(ctx, sql, args...)
 	if err != nil {
-		return fmt.Errorf(errUnableToDeleteRelationships, err)
+		return false, fmt.Errorf(errUnableToDeleteRelationships, err)
 	}
 
 	rwt.relCountChange -= modified.RowsAffected()
+	if delLimit > 0 && uint64(modified.RowsAffected()) == delLimit {
+		return true, nil
+	}
 
-	return nil
+	return false, nil
 }
 
 func (rwt *crdbReadWriteTXN) WriteNamespaces(ctx context.Context, newConfigs ...*core.NamespaceDefinition) error {
@@ -251,12 +399,13 @@ func (rwt *crdbReadWriteTXN) WriteNamespaces(ctx context.Context, newConfigs ...
 }
 
 func (rwt *crdbReadWriteTXN) DeleteNamespaces(ctx context.Context, nsNames ...string) error {
+	querier := pgxcommon.QuerierFuncsFor(rwt.tx)
 	// For each namespace, check they exist and collect predicates for the
 	// "WHERE" clause to delete the namespaces and associated tuples.
 	nsClauses := make([]sq.Sqlizer, 0, len(nsNames))
 	tplClauses := make([]sq.Sqlizer, 0, len(nsNames))
 	for _, nsName := range nsNames {
-		_, timestamp, err := rwt.loadNamespace(ctx, rwt.tx, nsName)
+		_, timestamp, err := rwt.loadNamespace(ctx, querier, nsName)
 		if err != nil {
 			if errors.As(err, &datastore.ErrNamespaceNotFound{}) {
 				return err
@@ -294,6 +443,21 @@ func (rwt *crdbReadWriteTXN) DeleteNamespaces(ctx context.Context, nsNames ...st
 	rwt.relCountChange -= numRowsDeleted
 
 	return nil
+}
+
+var copyCols = []string{
+	colNamespace,
+	colObjectID,
+	colRelation,
+	colUsersetNamespace,
+	colUsersetObjectID,
+	colUsersetRelation,
+	colCaveatContextName,
+	colCaveatContext,
+}
+
+func (rwt *crdbReadWriteTXN) BulkLoad(ctx context.Context, iter datastore.BulkWriteRelationshipSource) (uint64, error) {
+	return pgxcommon.BulkLoad(ctx, rwt.tx, tableTuple, copyCols, iter)
 }
 
 var _ datastore.ReadWriteTransaction = &crdbReadWriteTXN{}

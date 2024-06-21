@@ -20,10 +20,12 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/ory/dockertest/v3"
 	"github.com/stretchr/testify/require"
 
+	"internal/datastore/crdb/pool"
 	crdbmigrations "spicedb/internal/datastore/crdb/migrations"
 	testdatastore "spicedb/internal/testserver/datastore"
 	"spicedb/pkg/datastore"
@@ -32,16 +34,26 @@ import (
 	"spicedb/pkg/migrate"
 )
 
+// Implement the TestableDatastore interface
+func (cds *crdbDatastore) ExampleRetryableError() error {
+	return &pgconn.PgError{
+		Code: pool.CrdbRetryErrCode,
+	}
+}
+
 func TestCRDBDatastore(t *testing.T) {
 	b := testdatastore.RunCRDBForTesting(t, "")
 	test.All(t, test.DatastoreTesterFunc(func(revisionQuantization, gcInterval, gcWindow time.Duration, watchBufferLength uint16) (datastore.Datastore, error) {
+		ctx := context.Background()
 		ds := b.NewDatastore(t, func(engine, uri string) datastore.Datastore {
 			ds, err := NewCRDBDatastore(
+				ctx,
 				uri,
 				GCWindow(gcWindow),
 				RevisionQuantization(revisionQuantization),
 				WatchBufferLength(watchBufferLength),
 				OverlapStrategy(overlapStrategyPrefix),
+				DebugAnalyzeBeforeStatistics(),
 			)
 			require.NoError(t, err)
 			return ds
@@ -55,6 +67,8 @@ func TestCRDBDatastoreWithFollowerReads(t *testing.T) {
 	followerReadDelay := time.Duration(4.8 * float64(time.Second))
 	gcWindow := 100 * time.Second
 
+	engine := testdatastore.RunCRDBForTesting(t, "")
+
 	quantizationDurations := []time.Duration{
 		0 * time.Second,
 		100 * time.Millisecond,
@@ -62,20 +76,22 @@ func TestCRDBDatastoreWithFollowerReads(t *testing.T) {
 	for _, quantization := range quantizationDurations {
 		t.Run(fmt.Sprintf("Quantization%s", quantization), func(t *testing.T) {
 			require := require.New(t)
+			ctx := context.Background()
 
-			ds := testdatastore.RunCRDBForTesting(t, "").NewDatastore(t, func(engine, uri string) datastore.Datastore {
+			ds := engine.NewDatastore(t, func(engine, uri string) datastore.Datastore {
 				ds, err := NewCRDBDatastore(
+					ctx,
 					uri,
 					GCWindow(gcWindow),
 					RevisionQuantization(quantization),
 					FollowerReadDelay(followerReadDelay),
+					DebugAnalyzeBeforeStatistics(),
 				)
 				require.NoError(err)
 				return ds
 			})
 			defer ds.Close()
 
-			ctx := context.Background()
 			r, err := ds.ReadyState(ctx)
 			require.NoError(err)
 			require.True(r.IsReady)
@@ -88,7 +104,7 @@ func TestCRDBDatastoreWithFollowerReads(t *testing.T) {
 				nowRevision, err := ds.HeadRevision(ctx)
 				require.NoError(err)
 
-				diff := nowRevision.(revision.Decimal).IntPart() - testRevision.(revision.Decimal).IntPart()
+				diff := nowRevision.(revisions.HLCRevision).TimestampNanoSec() - testRevision.(revisions.HLCRevision).TimestampNanoSec()
 				require.True(diff > followerReadDelay.Nanoseconds())
 			}
 		})
@@ -120,14 +136,18 @@ func TestWatchFeatureDetection(t *testing.T) {
 				require.NoError(t, err)
 			},
 			expectEnabled: false,
-			expectMessage: "Range feeds must be enabled in CockroachDB and the user must have permission to create them in order to enable the Watch API: ERROR: user unprivileged does not have CHANGEFEED privilege on relation relation_tuple (SQLSTATE 42501)",
+			expectMessage: "(SQLSTATE 42501)",
 		},
 		{
 			name: "rangefeeds enabled, user has permission",
 			postInit: func(ctx context.Context, adminConn *pgx.Conn) {
 				_, err = adminConn.Exec(ctx, `SET CLUSTER SETTING kv.rangefeed.enabled = true;`)
 				require.NoError(t, err)
+
 				_, err = adminConn.Exec(ctx, fmt.Sprintf(`GRANT CHANGEFEED ON TABLE testspicedb.%s TO unprivileged;`, tableTuple))
+				require.NoError(t, err)
+
+				_, err = adminConn.Exec(ctx, fmt.Sprintf(`GRANT SELECT ON TABLE testspicedb.%s TO unprivileged;`, tableTuple))
 				require.NoError(t, err)
 			},
 			expectEnabled: true,
@@ -146,7 +166,7 @@ func TestWatchFeatureDetection(t *testing.T) {
 
 			tt.postInit(ctx, adminConn)
 
-			ds, err := NewCRDBDatastore(connStrings[unprivileged])
+			ds, err := NewCRDBDatastore(ctx, connStrings[unprivileged])
 			require.NoError(t, err)
 
 			features, err := ds.Features(ctx)
@@ -158,7 +178,7 @@ func TestWatchFeatureDetection(t *testing.T) {
 				headRevision, err := ds.HeadRevision(ctx)
 				require.NoError(t, err)
 
-				_, errChan := ds.Watch(ctx, headRevision)
+				_, errChan := ds.Watch(ctx, headRevision, datastore.WatchJustRelationships())
 				err = <-errChan
 				require.NotNil(t, err)
 				require.Contains(t, err.Error(), "watch is currently disabled")
@@ -283,7 +303,7 @@ func newCRDBWithUser(t *testing.T, pool *dockertest.Pool) (adminConn *pgx.Conn, 
 	require.NoError(t, rootCertFile.Close())
 
 	resource, err := pool.RunWithOptions(&dockertest.RunOptions{
-		Repository: "cockroachdb/cockroach",
+		Repository: "mirror.gcr.io/cockroachdb/cockroach",
 		Tag:        testdatastore.CRDBTestVersionTag,
 		Cmd:        []string{"start-single-node", "--certs-dir", "/certs", "--accept-sql-without-tls"},
 		Mounts:     []string{certDir + ":/certs"},

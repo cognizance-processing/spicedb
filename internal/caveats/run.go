@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 
-	"golang.org/x/exp/maps"
 	"google.golang.org/protobuf/types/known/structpb"
 
-	"spicedb/pkg/caveats"
-	"spicedb/pkg/datastore"
-	core "spicedb/pkg/proto/core/v1"
-	"spicedb/pkg/spiceerrors"
-	"spicedb/pkg/util"
+	"github.com/authzed/spicedb/pkg/caveats"
+	caveattypes "github.com/authzed/spicedb/pkg/caveats/types"
+	"github.com/authzed/spicedb/pkg/datastore"
+	"github.com/authzed/spicedb/pkg/genutil/mapz"
+	core "github.com/authzed/spicedb/pkg/proto/core/v1"
+	"github.com/authzed/spicedb/pkg/spiceerrors"
 )
 
 // RunCaveatExpressionDebugOption are the options for running caveat expression evaluation
@@ -100,7 +101,7 @@ func runExpression(
 	debugOption RunCaveatExpressionDebugOption,
 ) (ExpressionResult, error) {
 	// Collect all referenced caveat definitions in the expression.
-	caveatNames := util.NewSet[string]()
+	caveatNames := mapz.NewSet[string]()
 	collectCaveatNames(expr, caveatNames)
 
 	if caveatNames.IsEmpty() {
@@ -141,13 +142,18 @@ func (lc loadedCaveats) Get(caveatDefName string) (*core.CaveatDefinition, *cave
 		return caveat, deserialized, nil
 	}
 
-	deserialized, err := caveats.DeserializeCaveat(caveat.SerializedExpression)
+	parameterTypes, err := caveattypes.DecodeParameterTypes(caveat.ParameterTypes)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	justDeserialized, err := caveats.DeserializeCaveat(caveat.SerializedExpression, parameterTypes)
 	if err != nil {
 		return caveat, nil, err
 	}
 
-	lc.deserializedCaveats[caveatDefName] = deserialized
-	return caveat, deserialized, nil
+	lc.deserializedCaveats[caveatDefName] = justDeserialized
+	return caveat, justDeserialized, nil
 }
 
 func runExpressionWithCaveats(
@@ -317,7 +323,7 @@ func combineMaps(first map[string]any, second map[string]any) map[string]any {
 	return cloned
 }
 
-func collectCaveatNames(expr *core.CaveatExpression, caveatNames *util.Set[string]) {
+func collectCaveatNames(expr *core.CaveatExpression, caveatNames *mapz.Set[string]) {
 	if expr.GetCaveat() != nil {
 		caveatNames.Add(expr.GetCaveat().CaveatName)
 		return

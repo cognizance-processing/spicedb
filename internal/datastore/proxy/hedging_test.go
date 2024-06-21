@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/benbjohnson/clock"
-	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
@@ -17,8 +16,9 @@ import (
 	"spicedb/internal/datastore/proxy/proxy_test"
 	"spicedb/pkg/datastore"
 	"spicedb/pkg/datastore/options"
-	"spicedb/pkg/datastore/revision"
 	core "spicedb/pkg/proto/core/v1"
+
+	"spicedb/internal/datastore/revisions"
 )
 
 var (
@@ -29,8 +29,8 @@ var (
 	errKnown             = errors.New("known error")
 	errAnotherKnown      = errors.New("another known error")
 	nsKnown              = "namespace_name"
-	revisionKnown        = revision.NewFromDecimal(decimal.NewFromInt(1))
-	anotherRevisionKnown = revision.NewFromDecimal(decimal.NewFromInt(2))
+	revisionKnown        = revisions.NewForTransactionID(1)
+	anotherRevisionKnown = revisions.NewForTransactionID(2)
 
 	emptyIterator = common.NewSliceRelationshipIterator(nil, options.Unsorted)
 )
@@ -164,7 +164,7 @@ func TestDatastoreRequestHedging(t *testing.T) {
 
 			delegate.
 				On(tc.methodName, tc.arguments...).
-				WaitUntil(mockTime.After(3 * slowQueryTime)).
+				WaitUntil(mockTime.After(5 * slowQueryTime)).
 				Return(tc.firstCallResults...).
 				Once()
 			delegate.
@@ -172,7 +172,7 @@ func TestDatastoreRequestHedging(t *testing.T) {
 				Return(tc.secondCallResults...).
 				Once()
 
-			done := autoAdvance(mockTime, slowQueryTime, 5*slowQueryTime)
+			done := autoAdvance(mockTime, slowQueryTime, 6*slowQueryTime)
 
 			tc.f(t, proxy, false)
 			delegate.AssertExpectations(t)
@@ -181,16 +181,16 @@ func TestDatastoreRequestHedging(t *testing.T) {
 
 			delegate.
 				On(tc.methodName, tc.arguments...).
-				WaitUntil(mockTime.After(3 * slowQueryTime)).
+				WaitUntil(mockTime.After(7 * slowQueryTime)).
 				Return(tc.firstCallResults...).
 				Once()
 			delegate.
 				On(tc.methodName, tc.arguments...).
-				WaitUntil(mockTime.After(4 * slowQueryTime)).
+				WaitUntil(mockTime.After(8 * slowQueryTime)).
 				Return(tc.secondCallResults...).
 				Once()
 
-			autoAdvance(mockTime, slowQueryTime, 8*slowQueryTime)
+			autoAdvance(mockTime, slowQueryTime, 9*slowQueryTime)
 
 			tc.f(t, proxy, true)
 			delegate.AssertExpectations(t)
@@ -321,10 +321,11 @@ func TestDatastoreE2E(t *testing.T) {
 
 	it, err := proxy.SnapshotReader(revisionKnown).QueryRelationships(
 		context.Background(), datastore.RelationshipsFilter{
-			ResourceType: "test",
+			OptionalResourceType: "test",
 		},
 	)
 	require.NoError(err)
+	defer it.Close()
 
 	only := it.Next()
 	require.Equal(expectedTuples[0], only)

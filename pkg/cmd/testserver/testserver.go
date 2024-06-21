@@ -3,6 +3,7 @@ package testserver
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
@@ -27,14 +28,19 @@ const maxDepth = 50
 
 //go:generate go run github.com/ecordell/optgen -output zz_generated.options.go . Config
 type Config struct {
-	GRPCServer               util.GRPCServerConfig
-	ReadOnlyGRPCServer       util.GRPCServerConfig
-	HTTPGateway              util.HTTPServerConfig
-	ReadOnlyHTTPGateway      util.HTTPServerConfig
-	LoadConfigs              []string
-	MaximumUpdatesPerWrite   uint16
-	MaximumPreconditionCount uint16
-	MaxCaveatContextSize     int
+	GRPCServer                      util.GRPCServerConfig `debugmap:"visible"`
+	ReadOnlyGRPCServer              util.GRPCServerConfig `debugmap:"visible"`
+	HTTPGateway                     util.HTTPServerConfig `debugmap:"visible"`
+	ReadOnlyHTTPGateway             util.HTTPServerConfig `debugmap:"visible"`
+	LoadConfigs                     []string              `debugmap:"visible"`
+	MaximumUpdatesPerWrite          uint16                `debugmap:"visible"`
+	MaximumPreconditionCount        uint16                `debugmap:"visible"`
+	MaxCaveatContextSize            int                   `debugmap:"visible"`
+	MaxRelationshipContextSize      int                   `debugmap:"visible"`
+	MaxReadRelationshipsLimit       uint32                `debugmap:"visible"`
+	MaxDeleteRelationshipsLimit     uint32                `debugmap:"visible"`
+	MaxLookupResourcesLimit         uint32                `debugmap:"visible"`
+	MaxBulkExportRelationshipsLimit uint32                `debugmap:"visible"`
 }
 
 type RunnableTestServer interface {
@@ -64,11 +70,16 @@ func (c *Config) Complete() (RunnableTestServer, error) {
 			services.V1SchemaServiceEnabled,
 			services.WatchServiceEnabled,
 			v1svc.PermissionsServerConfig{
-				MaxPreconditionsCount: c.MaximumPreconditionCount,
-				MaxUpdatesPerWrite:    c.MaximumUpdatesPerWrite,
-				MaximumAPIDepth:       maxDepth,
-				MaxCaveatContextSize:  c.MaxCaveatContextSize,
+				MaxPreconditionsCount:           c.MaximumPreconditionCount,
+				MaxUpdatesPerWrite:              c.MaximumUpdatesPerWrite,
+				MaximumAPIDepth:                 maxDepth,
+				MaxCaveatContextSize:            c.MaxCaveatContextSize,
+				MaxReadRelationshipsLimit:       c.MaxReadRelationshipsLimit,
+				MaxDeleteRelationshipsLimit:     c.MaxDeleteRelationshipsLimit,
+				MaxLookupResourcesLimit:         c.MaxLookupResourcesLimit,
+				MaxBulkExportRelationshipsLimit: c.MaxBulkExportRelationshipsLimit,
 			},
+			1*time.Second,
 		)
 	}
 	gRPCSrv, err := c.GRPCServer.Complete(zerolog.InfoLevel, registerServices,
@@ -114,7 +125,7 @@ func (c *Config) Complete() (RunnableTestServer, error) {
 		log.Fatal().Err(err).Msg("failed to initialize rest gateway")
 	}
 
-	if c.HTTPGateway.Enabled {
+	if c.HTTPGateway.HTTPEnabled {
 		log.Info().Msg("starting REST gateway")
 	}
 
@@ -128,7 +139,7 @@ func (c *Config) Complete() (RunnableTestServer, error) {
 		log.Fatal().Err(err).Msg("failed to initialize rest gateway")
 	}
 
-	if c.ReadOnlyHTTPGateway.Enabled {
+	if c.ReadOnlyHTTPGateway.HTTPEnabled {
 		log.Info().Msg("starting REST gateway")
 	}
 

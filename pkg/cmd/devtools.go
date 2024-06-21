@@ -13,9 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/go-logr/zerologr"
-	grpczerolog "github.com/grpc-ecosystem/go-grpc-middleware/providers/zerolog/v2"
 	grpclog "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/logging"
-	grpcprom "github.com/grpc-ecosystem/go-grpc-prometheus"
 	"github.com/jzelinskie/cobrautil/v2"
 	"github.com/jzelinskie/cobrautil/v2/cobragrpc"
 	"github.com/jzelinskie/cobrautil/v2/cobrahttp"
@@ -29,6 +27,7 @@ import (
 	log "spicedb/internal/logging"
 	v0svc "spicedb/internal/services/v0"
 	"spicedb/pkg/cmd/server"
+	"spicedb/pkg/cmd/termination"
 )
 
 func RegisterDevtoolsFlags(cmd *cobra.Command) {
@@ -51,18 +50,19 @@ func NewDevtoolsCommand(programName string) *cobra.Command {
 		Short:   "runs the developer tools service",
 		Long:    "Serves the authzed.api.v0.DeveloperService which is used for development tooling such as the Authzed Playground",
 		PreRunE: server.DefaultPreRunE(programName),
-		RunE:    runfunc,
+		RunE:    termination.PublishError(runfunc),
 		Args:    cobra.ExactArgs(0),
 	}
 }
 
 func runfunc(cmd *cobra.Command, _ []string) error {
+	grpcUnaryInterceptor, _ := server.GRPCMetrics(false)
 	grpcBuilder := grpcServiceBuilder()
 	grpcServer, err := grpcBuilder.ServerFromFlags(cmd,
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
-			grpclog.UnaryServerInterceptor(grpczerolog.InterceptorLogger(log.Logger)),
-			otelgrpc.UnaryServerInterceptor(),
-			grpcprom.UnaryServerInterceptor,
+			grpclog.UnaryServerInterceptor(server.InterceptorLogger(log.Logger)),
+			grpcUnaryInterceptor,
 		))
 	if err != nil {
 		log.Ctx(cmd.Context()).Fatal().Err(err).Msg("failed to create gRPC server")
@@ -126,7 +126,7 @@ func httpMetricsServiceBuilder() *cobrahttp.Builder {
 	return cobrahttp.New("metrics",
 		cobrahttp.WithLogger(zerologr.New(&log.Logger)),
 		cobrahttp.WithFlagPrefix("metrics"),
-		cobrahttp.WithHandler(server.MetricsHandler(server.DisableTelemetryHandler)),
+		cobrahttp.WithHandler(server.MetricsHandler(server.DisableTelemetryHandler, nil)),
 	)
 }
 

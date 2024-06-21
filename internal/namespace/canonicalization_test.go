@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	core "spicedb/pkg/proto/core/v1"
+	"spicedb/pkg/typesystem"
 
 	"spicedb/internal/datastore/memdb"
 	ns "spicedb/pkg/namespace"
@@ -389,7 +390,7 @@ func TestCanonicalization(t *testing.T) {
 			lastRevision, err := ds.HeadRevision(context.Background())
 			require.NoError(err)
 
-			ts, err := NewNamespaceTypeSystem(tc.toCheck, ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
+			ts, err := typesystem.NewNamespaceTypeSystem(tc.toCheck, typesystem.ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
 			require.NoError(err)
 
 			vts, terr := ts.Validate(ctx)
@@ -513,18 +514,17 @@ func TestCanonicalizationComparison(t *testing.T) {
 
 			ctx := context.Background()
 
-			empty := ""
 			schemaText := fmt.Sprintf(comparisonSchemaTemplate, tc.first, tc.second)
 			compiled, err := compiler.Compile(compiler.InputSchema{
 				Source:       input.Source("schema"),
 				SchemaString: schemaText,
-			}, &empty)
+			}, compiler.AllowUnprefixedObjectType())
 			require.NoError(err)
 
 			lastRevision, err := ds.HeadRevision(context.Background())
 			require.NoError(err)
 
-			ts, err := NewNamespaceTypeSystem(compiled.ObjectDefinitions[0], ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
+			ts, err := typesystem.NewNamespaceTypeSystem(compiled.ObjectDefinitions[0], typesystem.ResolverForDatastoreReader(ds.SnapshotReader(lastRevision)))
 			require.NoError(err)
 
 			vts, terr := ts.Validate(ctx)

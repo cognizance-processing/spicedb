@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
-	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/encoding/prototext"
 	"google.golang.org/protobuf/types/known/structpb"
 
@@ -20,9 +19,9 @@ import (
 	tf "spicedb/internal/testfixtures"
 	"spicedb/internal/testserver"
 	"spicedb/pkg/datastore"
+	"spicedb/pkg/genutil/mapz"
 	core "spicedb/pkg/proto/core/v1"
 	"spicedb/pkg/tuple"
-	"spicedb/pkg/util"
 	"spicedb/pkg/zedtoken"
 )
 
@@ -45,11 +44,11 @@ type debugCheckInfo struct {
 
 func expectDebugFrames(permissionNames ...string) rda {
 	return func(req *require.Assertions, debugInfo *v1.DebugInformation) {
-		found := util.NewSet[string]()
+		found := mapz.NewSet[string]()
 		for _, sp := range debugInfo.Check.GetSubProblems().Traces {
 			for _, permissionName := range permissionNames {
 				if sp.Permission == permissionName {
-					found.Add(permissionName)
+					found.Insert(permissionName)
 				}
 			}
 		}
@@ -304,6 +303,37 @@ func TestCheckPermissionWithDebug(t *testing.T) {
 			},
 		},
 		{
+			"ip address caveat",
+			`definition user {}
+
+			caveat has_valid_ip(user_ip ipaddress, allowed_range string) {
+				user_ip.in_cidr(allowed_range)
+			}
+			
+			definition resource {
+				relation viewer: user | user with has_valid_ip
+			}`,
+			[]*core.RelationTuple{
+				tuple.MustParse(`resource:first#viewer@user:sarah[has_valid_ip:{"allowed_range":"192.168.0.0/16"}]`),
+			},
+			[]debugCheckInfo{
+				{
+					"sarah as viewer",
+					debugCheckRequest{
+						obj("resource", "first"),
+						"viewer",
+						sub("user", "sarah", ""),
+						map[string]any{
+							"user_ip": "192.168.1.100",
+						},
+					},
+					v1.CheckPermissionResponse_PERMISSIONSHIP_HAS_PERMISSION,
+					0,
+					nil,
+				},
+			},
+		},
+		{
 			"multiple caveated debug",
 			`definition user {}
 			
@@ -452,11 +482,10 @@ func TestCheckPermissionWithDebug(t *testing.T) {
 					encodedDebugInfo, err := responsemeta.GetResponseTrailerMetadataOrNil(trailer, responsemeta.DebugInformation)
 					req.NoError(err)
 
-					req.NotNil(encodedDebugInfo)
+					// DebugInfo No longer comes as part of the trailer
+					req.Nil(encodedDebugInfo)
 
-					debugInfo := &v1.DebugInformation{}
-					err = protojson.Unmarshal([]byte(*encodedDebugInfo), debugInfo)
-					req.NoError(err)
+					debugInfo := checkResp.DebugTrace
 					req.NotEmpty(debugInfo.SchemaUsed)
 
 					req.Equal(stc.checkRequest.resource.ObjectType, debugInfo.Check.Resource.ObjectType)
