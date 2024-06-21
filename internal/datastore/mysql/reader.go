@@ -5,14 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-
-	sq "github.com/Masterminds/squirrel"
-
 	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
 	"spicedb/pkg/datastore/options"
 	core "spicedb/pkg/proto/core/v1"
+
+	sq "github.com/Masterminds/squirrel"
 )
 
 type txCleanupFunc func() error

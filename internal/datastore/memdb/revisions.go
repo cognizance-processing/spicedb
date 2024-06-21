@@ -3,12 +3,9 @@ package memdb
 import (
 	"context"
 	"fmt"
-	"time"
-
-	"github.com/shopspring/decimal"
-
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
+	"time"
 )
 
 var ParseRevisionString = revisions.RevisionParser(revisions.Timestamp)

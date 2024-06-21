@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
 )
 

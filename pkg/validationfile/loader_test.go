@@ -12,8 +12,6 @@ import (
 	"spicedb/pkg/datastore"
 	"spicedb/pkg/datastore/options"
 	"spicedb/pkg/tuple"
-
-	"github.com/stretchr/testify/require"
 )
 
 func TestPopulateFromFiles(t *testing.T) {

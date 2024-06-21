@@ -6,13 +6,12 @@ import (
 	"fmt"
 	"time"
 
-	sq "github.com/Masterminds/squirrel"
-	"github.com/jackc/pgx/v5"
-
-	pgxcommon "spicedb/internal/datastore/postgres/common"
 	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
 	core "spicedb/pkg/proto/core/v1"
+
+	sq "github.com/Masterminds/squirrel"
+	"github.com/jackc/pgx/v5"
 )
 
 var (

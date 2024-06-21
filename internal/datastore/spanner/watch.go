@@ -16,8 +16,8 @@ import (
 	"google.golang.org/api/option"
 
 	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
 	core "spicedb/pkg/proto/core/v1"
 	"spicedb/pkg/spiceerrors"
 )

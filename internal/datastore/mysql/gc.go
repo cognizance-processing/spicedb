@@ -3,14 +3,13 @@ package mysql
 import (
 	"context"
 	"database/sql"
+	"spicedb/internal/datastore/common"
+	"spicedb/internal/datastore/revisions"
+	log "spicedb/internal/logging"
+	"spicedb/pkg/datastore"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
-
-	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/common/revisions"
-	log "spicedb/internal/logging"
-	"spicedb/pkg/datastore"
 )
 
 var _ common.GarbageCollector = (*Datastore)(nil)

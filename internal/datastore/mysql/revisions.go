@@ -5,8 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
 	"time"
 )
 

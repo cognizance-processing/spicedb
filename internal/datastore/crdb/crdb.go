@@ -21,7 +21,8 @@ import (
 
 	datastoreinternal "spicedb/internal/datastore"
 	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/revisions"
+
 	"spicedb/internal/datastore/crdb/migrations"
 	"spicedb/internal/datastore/crdb/pool"
 	pgxcommon "spicedb/internal/datastore/postgres/common"

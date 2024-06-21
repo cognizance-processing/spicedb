@@ -27,9 +27,9 @@ import (
 
 	"internal/datastore/crdb/pool"
 	crdbmigrations "spicedb/internal/datastore/crdb/migrations"
+	"spicedb/internal/datastore/revisions"
 	testdatastore "spicedb/internal/testserver/datastore"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
 	"spicedb/pkg/datastore/test"
 	"spicedb/pkg/migrate"
 )

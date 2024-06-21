@@ -7,8 +7,8 @@ import (
 
 	"cloud.google.com/go/spanner"
 
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
-	"spicedb/pkg/datastore/revision"
 )
 
 var (

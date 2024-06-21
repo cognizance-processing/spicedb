@@ -15,9 +15,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/hashicorp/go-memdb"
 
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/datastore"
 	"spicedb/pkg/datastore/options"
-	"spicedb/pkg/datastore/revision"
 	corev1 "spicedb/pkg/proto/core/v1"
 )
 

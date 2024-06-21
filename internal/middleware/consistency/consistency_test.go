@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"spicedb/internal/datastore/proxy/proxy_test"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/pkg/cursor"
-	"spicedb/pkg/datastore/revision"
 	dispatch "spicedb/pkg/proto/dispatch/v1"
 	"spicedb/pkg/zedtoken"
 )

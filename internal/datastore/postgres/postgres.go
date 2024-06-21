@@ -23,19 +23,17 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/revisions"
+
 	pgxcommon "spicedb/internal/datastore/postgres/common"
 	"spicedb/internal/datastore/postgres/migrations"
 	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
 
 	"github.com/schollz/progressbar/v3"
-	"go.opentelemetry.io/otel"
-	"golang.org/x/sync/errgroup"
 
 	datastoreinternal "spicedb/internal/datastore"
-	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/revisions"
+
 	"spicedb/pkg/datastore/options"
 )
 

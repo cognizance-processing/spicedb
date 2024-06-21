@@ -9,11 +9,6 @@ import (
 	"spicedb/pkg/validationfile/blocks"
 
 	v1t "github.com/authzed/authzed-go/proto/authzed/api/v1"
-
-	devinterface "spicedb/pkg/proto/developer/v1"
-	v1 "spicedb/pkg/proto/dispatch/v1"
-	"spicedb/pkg/tuple"
-	"spicedb/pkg/validationfile/blocks"
 )
 
 const maxDispatchDepth = 25

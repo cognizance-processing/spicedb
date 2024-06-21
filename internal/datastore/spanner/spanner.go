@@ -24,7 +24,7 @@ import (
 	"google.golang.org/grpc/codes"
 
 	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/common/revisions"
+	"spicedb/internal/datastore/revisions"
 	"spicedb/internal/datastore/spanner/migrations"
 	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
