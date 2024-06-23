@@ -189,21 +189,25 @@ func newPostgresDatastore(
 	)
 
 	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s", dbUser, dbPwd, dbName, instanceConnectionName)
+	fmt.Println("DSN", dsn)
 	config, err := generateConfig(options)
 	pgURL = dsn
 	if err != nil {
+		log.Error().Err(err).Msg("unable to generate configuration")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
 	// Parse the DB URI into configuration.
 	parsedConfig, err := pgxpool.ParseConfig(pgURL)
 	if err != nil {
+		log.Error().Err(err).Msg("unable to parse configuration")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
 	// Setup the default custom plan setting, if applicable.
 	pgConfig, err := defaultCustomPlan(parsedConfig)
 	if err != nil {
+		log.Error().Err(err).Msg("unable to something?")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
@@ -212,12 +216,14 @@ func newPostgresDatastore(
 	if config.credentialsProviderName != "" {
 		credentialsProvider, err = datastore.NewCredentialsProvider(ctx, config.credentialsProviderName)
 		if err != nil {
+			log.Error().Err(err).Msg("credential thing")
 			return nil, err
 		}
 	}
 	var opts []cloudsqlconn.Option
 	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
 	if err != nil {
+		log.Error().Err(err).Msg("cloudsqlDialerErrrr")
 		return nil, err
 	}
 	// Setup the config for each of the read and write pools.
@@ -263,11 +269,13 @@ func newPostgresDatastore(
 
 	readPool, err := pgxpool.NewWithConfig(initializationContext, readPoolConfig)
 	if err != nil {
+		log.Error().Err(err).Msg("readPool maker err")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
 	writePool, err := pgxpool.NewWithConfig(initializationContext, writePoolConfig)
 	if err != nil {
+		log.Error().Err(err).Msg("writePool maker err")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
 
@@ -276,6 +284,7 @@ func newPostgresDatastore(
 	if err := readPool.
 		QueryRow(initializationContext, "SHOW track_commit_timestamp;").
 		Scan(&trackTSOn); err != nil {
+		log.Error().Err(err).Msg("something?")
 		return nil, err
 	}
 
@@ -289,15 +298,18 @@ func newPostgresDatastore(
 			"db_name":    "spicedb",
 			"pool_usage": "read",
 		})); err != nil {
+			log.Error().Err(err).Msg("prometheus register err")
 			return nil, err
 		}
 		if err := prometheus.Register(pgxpoolprometheus.NewCollector(writePool, map[string]string{
 			"db_name":    "spicedb",
 			"pool_usage": "write",
 		})); err != nil {
+			log.Error().Err(err).Msg("prometheus register err2")
 			return nil, err
 		}
 		if err := common.RegisterGCMetrics(); err != nil {
+			log.Error().Err(err).Msg("prometheus register err3")
 			return nil, err
 		}
 	}
@@ -430,6 +442,7 @@ func (pgd *pgDatastore) ReadWriteTx(
 			var err error
 			newXID, newSnapshot, err = createNewTransaction(ctx, tx)
 			if err != nil {
+				log.Error().Err(err).Msg("unable to create new transaction")
 				return err
 			}
 
@@ -451,6 +464,7 @@ func (pgd *pgDatastore) ReadWriteTx(
 			return fn(ctx, rwt)
 		}))
 		if err != nil {
+			log.Error().Err(err).Msg("transaction failed")
 			if !config.DisableRetries && errorRetryable(err) {
 				pgxcommon.SleepOnErr(ctx, err, i)
 				continue
@@ -490,6 +504,7 @@ const batchSize = 10000
 func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress bool) error {
 	conn, err := pgx.Connect(ctx, pgd.dburl)
 	if err != nil {
+		log.Error().Err(err).Msg("unable to connect to database")
 		return err
 	}
 	defer conn.Close(ctx)
@@ -498,6 +513,7 @@ func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress
 	currentMaximumID := 0
 	if err := conn.QueryRow(ctx, queryCurrentTransactionID).Scan(&currentMaximumID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Error().Err(err).Msg("unable to find current transaction ID")
 			return err
 		}
 	}
@@ -506,6 +522,7 @@ func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress
 	referencedMaximumID := 0
 	if err := conn.QueryRow(ctx, queryLatestXID).Scan(&referencedMaximumID); err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Error().Err(err).Msg("unable to find referenced maximum transaction ID")
 			return err
 		}
 	}
@@ -534,12 +551,14 @@ func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress
 
 		br := conn.SendBatch(ctx, &batch)
 		if err := br.Close(); err != nil {
+			log.Error().Err(err).Msg("unable to close batch")
 			return err
 		}
 
 		i += batchCount - 1
 		if bar != nil {
 			if err := bar.Add(batchCount); err != nil {
+				log.Error().Err(err).Msg("unable to update progress bar")
 				return err
 			}
 		}
@@ -547,6 +566,7 @@ func (pgd *pgDatastore) repairTransactionIDs(ctx context.Context, outputProgress
 
 	if bar != nil {
 		if err := bar.Close(); err != nil {
+			log.Error().Err(err).Msg("unable to close progress bar")
 			return err
 		}
 	}
@@ -569,6 +589,7 @@ func wrapError(err error) error {
 	// If a unique constraint violation is returned, then its likely that the cause
 	// was an existing relationship given as a CREATE.
 	if cerr := pgxcommon.ConvertToWriteConstraintError(livingTupleConstraints, err); cerr != nil {
+
 		return cerr
 	}
 
