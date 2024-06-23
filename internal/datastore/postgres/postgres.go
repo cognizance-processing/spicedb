@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"crypto/tls"
 	dbsql "database/sql"
 	"errors"
 	"fmt"
@@ -189,7 +190,6 @@ func newPostgresDatastore(
 	)
 
 	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s", dbUser, dbPwd, dbName, instanceConnectionName)
-	fmt.Println("DSN", dsn)
 	config, err := generateConfig(options)
 	pgURL = dsn
 	if err != nil {
@@ -203,7 +203,9 @@ func newPostgresDatastore(
 		log.Error().Err(err).Msg("unable to parse configuration")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
-
+	parsedConfig.ConnConfig.TLSConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
 	// Setup the default custom plan setting, if applicable.
 	pgConfig, err := defaultCustomPlan(parsedConfig)
 	if err != nil {
