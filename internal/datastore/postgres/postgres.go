@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"crypto/tls"
 	dbsql "database/sql"
 	"errors"
 	"fmt"
@@ -203,9 +202,7 @@ func newPostgresDatastore(
 		log.Error().Err(err).Msg("unable to parse configuration")
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
-	parsedConfig.ConnConfig.TLSConfig = &tls.Config{
-		InsecureSkipVerify: true,
-	}
+
 	// Setup the default custom plan setting, if applicable.
 	pgConfig, err := defaultCustomPlan(parsedConfig)
 	if err != nil {
@@ -245,15 +242,15 @@ func newPostgresDatastore(
 		return nil
 	}
 
-	// if credentialsProvider != nil {
-	// 	// add before connect callbacks to trigger the token
-	// 	getToken := func(ctx context.Context, config *pgx.ConnConfig) error {
-	// 		config.User, config.Password, err = credentialsProvider.Get(ctx, fmt.Sprintf("%s:%d", config.Host, config.Port), config.User)
-	// 		return err
-	// 	}
-	// 	readPoolConfig.BeforeConnect = getToken
-	// 	writePoolConfig.BeforeConnect = getToken
-	// }
+	if credentialsProvider != nil {
+		// add before connect callbacks to trigger the token
+		getToken := func(ctx context.Context, config *pgx.ConnConfig) error {
+			config.User, config.Password, err = credentialsProvider.Get(ctx, fmt.Sprintf("%s:%d", config.Host, config.Port), config.User)
+			return err
+		}
+		readPoolConfig.BeforeConnect = getToken
+		writePoolConfig.BeforeConnect = getToken
+	}
 
 	if config.migrationPhase != "" {
 		log.Info().
@@ -282,18 +279,18 @@ func newPostgresDatastore(
 	}
 
 	// Verify that the server supports commit timestamps
-	var trackTSOn string
-	if err := readPool.
-		QueryRow(initializationContext, "SHOW track_commit_timestamp;").
-		Scan(&trackTSOn); err != nil {
-		log.Error().Err(err).Msg("something?")
-		return nil, err
-	}
+	// var trackTSOn string
+	// if err := readPool.
+	// 	QueryRow(initializationContext, "SHOW track_commit_timestamp;").
+	// 	Scan(&trackTSOn); err != nil {
+	// 	log.Error().Err(err).Msg("something?")
+	// 	return nil, err
+	// }
 
-	watchEnabled := trackTSOn == "on"
-	if !watchEnabled {
-		log.Warn().Msg("watch API disabled, postgres must be run with track_commit_timestamp=on")
-	}
+	// watchEnabled := trackTSOn == "on"
+	// if !watchEnabled {
+	// 	log.Warn().Msg("watch API disabled, postgres must be run with track_commit_timestamp=on")
+	// }
 
 	if config.enablePrometheusStats {
 		if err := prometheus.Register(pgxpoolprometheus.NewCollector(readPool, map[string]string{
@@ -358,12 +355,12 @@ func newPostgresDatastore(
 		gcInterval:              config.gcInterval,
 		gcTimeout:               config.gcMaxOperationTime,
 		analyzeBeforeStatistics: config.analyzeBeforeStatistics,
-		watchEnabled:            watchEnabled,
-		gcCtx:                   gcCtx,
-		cancelGc:                cancelGc,
-		readTxOptions:           pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
-		maxRetries:              config.maxRetries,
-		credentialsProvider:     credentialsProvider,
+		//watchEnabled:            watchEnabled,
+		gcCtx:               gcCtx,
+		cancelGc:            cancelGc,
+		readTxOptions:       pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly},
+		maxRetries:          config.maxRetries,
+		credentialsProvider: credentialsProvider,
 	}
 
 	datastore.SetOptimizedRevisionFunc(datastore.optimizedRevisionFunc)
