@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"spicedb/pkg/migrate"
 
 	pgxcommon "spicedb/internal/datastore/postgres/common"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/spf13/viper"
 	"go.opentelemetry.io/otel"
 )
 
@@ -26,13 +28,62 @@ var tracer = otel.Tracer("spicedb/internal/datastore/common")
 type AlembicPostgresDriver struct {
 	db *pgx.Conn
 }
+type Config struct {
+	ServerPort string
+	FontEndUrl string
+
+	// main db
+	DatabaseName           string
+	DatabaseUser           string
+	DatabasePassword       string
+	InstanceConnectionName string
+	SpiceDBSharedKey       string
+}
+
+func GetConfig(configFileName *string) (*Config, error) {
+	// set places to look for config file
+	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "spicedb")
+	viper.AddConfigPath(".")
+	// cloud run
+	viper.AddConfigPath("../../config")
+	viper.AddConfigPath("../config")
+	viper.AddConfigPath("./config")
+
+	// set the name of the config file
+	viper.SetConfigName(*configFileName)
+	if err := viper.ReadInConfig(); err != nil {
+		log.Error().Err(err).Msgf("could not parse config file")
+		return nil, err
+	}
+
+	// parse the config file
+	cfg := new(Config)
+	if err := viper.Unmarshal(cfg); err != nil {
+		log.Error().Err(err).Msg("unmarshalling config file")
+		return nil, err
+	}
+
+	return cfg, nil
+}
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(ctx context.Context, url string, credentialsProvider datastore.CredentialsProvider) (*AlembicPostgresDriver, error) {
 	ctx, span := tracer.Start(ctx, "NewAlembicPostgresDriver")
 	defer span.End()
-
-	connConfig, err := pgx.ParseConfig(url)
+	var configFileName = "config"
+	config2, err := GetConfig(&configFileName)
+	if err != nil {
+		log.Fatal().Err(err).Msg("getting config from file")
+	}
+	var (
+		dbUser                 = config2.DatabaseUser           // e.g. 'my-db-user'
+		dbPwd                  = config2.DatabasePassword       // e.g. 'my-db-password'
+		dbName                 = config2.DatabaseName           // e.g. 'my-database'
+		instanceConnectionName = config2.InstanceConnectionName // e.g. 'project:region:instance'
+		//usePrivate             = os.Getenv("PRIVATE_IP")
+	)
+	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s", dbUser, dbPwd, dbName, instanceConnectionName)
+	connConfig, err := pgx.ParseConfig(dsn)
 	if err != nil {
 		return nil, err
 	}

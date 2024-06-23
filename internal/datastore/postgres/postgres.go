@@ -221,7 +221,7 @@ func newPostgresDatastore(
 		}
 	}
 	var opts []cloudsqlconn.Option
-	d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
+	d, err := cloudsqlconn.NewDialer(ctx, opts...)
 	if err != nil {
 		log.Error().Err(err).Msg("cloudsqlDialerErrrr")
 		return nil, err
@@ -243,15 +243,15 @@ func newPostgresDatastore(
 		return nil
 	}
 
-	if credentialsProvider != nil {
-		// add before connect callbacks to trigger the token
-		getToken := func(ctx context.Context, config *pgx.ConnConfig) error {
-			config.User, config.Password, err = credentialsProvider.Get(ctx, fmt.Sprintf("%s:%d", config.Host, config.Port), config.User)
-			return err
-		}
-		readPoolConfig.BeforeConnect = getToken
-		writePoolConfig.BeforeConnect = getToken
-	}
+	// if credentialsProvider != nil {
+	// 	// add before connect callbacks to trigger the token
+	// 	getToken := func(ctx context.Context, config *pgx.ConnConfig) error {
+	// 		config.User, config.Password, err = credentialsProvider.Get(ctx, fmt.Sprintf("%s:%d", config.Host, config.Port), config.User)
+	// 		return err
+	// 	}
+	// 	readPoolConfig.BeforeConnect = getToken
+	// 	writePoolConfig.BeforeConnect = getToken
+	// }
 
 	if config.migrationPhase != "" {
 		log.Info().
@@ -314,7 +314,7 @@ func newPostgresDatastore(
 		}
 	}
 
-	gcCtx, cancelGc := context.WithCancel(context.Background())
+	gcCtx, cancelGc := context.WithCancel(ctx)
 
 	quantizationPeriodNanos := config.revisionQuantization.Nanoseconds()
 	if quantizationPeriodNanos < 1 {
