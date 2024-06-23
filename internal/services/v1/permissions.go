@@ -24,7 +24,6 @@ import (
 	"spicedb/internal/namespace"
 	"spicedb/internal/services/shared"
 	"spicedb/pkg/cursor"
-	"spicedb/pkg/datastore"
 	"spicedb/pkg/middleware/consistency"
 	core "spicedb/pkg/proto/core/v1"
 	dispatch "spicedb/pkg/proto/dispatch/v1"

@@ -10,7 +10,6 @@ import (
 	"spicedb/pkg/genutil/mapz"
 	"spicedb/pkg/graph"
 	nspkg "spicedb/pkg/namespace"
-	core "spicedb/pkg/proto/core/v1"
 	iv1 "spicedb/pkg/proto/impl/v1"
 	"spicedb/pkg/spiceerrors"
 	"spicedb/pkg/tuple"

@@ -11,19 +11,12 @@ import (
 
 	core "spicedb/pkg/proto/core/v1"
 
-	"github.com/jzelinskie/stringz"
 	caveattypes "spicedb/pkg/caveats/types"
 	"spicedb/pkg/namespace"
 	"spicedb/pkg/schemadsl/dslshape"
 	"spicedb/pkg/schemadsl/input"
 
-	"spicedb/pkg/caveats"
-	caveattypes "spicedb/pkg/caveats/types"
 	"spicedb/pkg/genutil/mapz"
-	"spicedb/pkg/namespace"
-	core "spicedb/pkg/proto/core/v1"
-	"spicedb/pkg/schemadsl/dslshape"
-	"spicedb/pkg/schemadsl/input"
 )
 
 type translationContext struct {

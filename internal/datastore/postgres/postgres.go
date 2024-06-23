@@ -18,22 +18,17 @@ import (
 	"github.com/mattn/go-isatty"
 	"github.com/ngrok/sqlmw"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/spf13/viper"
+	"github.com/schollz/progressbar/v3"
 	"go.opentelemetry.io/otel"
 	"golang.org/x/sync/errgroup"
 
+	datastoreinternal "spicedb/internal/datastore"
 	"spicedb/internal/datastore/common"
-	"spicedb/internal/datastore/revisions"
-
 	pgxcommon "spicedb/internal/datastore/postgres/common"
 	"spicedb/internal/datastore/postgres/migrations"
+	"spicedb/internal/datastore/revisions"
 	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
-
-	"github.com/schollz/progressbar/v3"
-
-	datastoreinternal "spicedb/internal/datastore"
-
 	"spicedb/pkg/datastore/options"
 )
 
@@ -114,17 +109,6 @@ var (
 	tracer = otel.Tracer("spicedb/internal/datastore/postgres")
 )
 
-type Config struct {
-	ServerPort string
-	FontEndUrl string
-
-	// main db
-	DatabaseName           string
-	DatabaseUser           string
-	DatabasePassword       string
-	InstanceConnectionName string
-	SpiceDBSharedKey       string
-}
 type sqlFilter interface {
 	ToSql() (string, []interface{}, error)
 }
@@ -146,54 +130,12 @@ func NewPostgresDatastore(
 	return datastoreinternal.NewSeparatingContextDatastoreProxy(ds), nil
 }
 
-func GetConfig(configFileName *string) (*Config, error) {
-	// set places to look for config file
-	viper.AddConfigPath("cmd" + string(os.PathSeparator) + "spicedb")
-	viper.AddConfigPath(".")
-	// cloud run
-	viper.AddConfigPath("../../config")
-	viper.AddConfigPath("../config")
-	viper.AddConfigPath("./config")
-
-	// set the name of the config file
-	viper.SetConfigName(*configFileName)
-	if err := viper.ReadInConfig(); err != nil {
-		log.Error().Err(err).Msgf("could not parse config file")
-		return nil, err
-	}
-
-	// parse the config file
-	cfg := new(Config)
-	if err := viper.Unmarshal(cfg); err != nil {
-		log.Error().Err(err).Msg("unmarshalling config file")
-		return nil, err
-	}
-
-	return cfg, nil
-}
-
 func newPostgresDatastore(
 	ctx context.Context,
 	pgURL string,
 	options ...Option,
 ) (datastore.Datastore, error) {
-	var configFileName = "config"
-	config2, err := GetConfig(&configFileName)
-	if err != nil {
-		log.Fatal().Err(err).Msg("getting config from file")
-	}
-	var (
-		dbUser                 = config2.DatabaseUser           // e.g. 'my-db-user'
-		dbPwd                  = config2.DatabasePassword       // e.g. 'my-db-password'
-		dbName                 = config2.DatabaseName           // e.g. 'my-database'
-		instanceConnectionName = config2.InstanceConnectionName // e.g. 'project:region:instance'
-		//usePrivate             = os.Getenv("PRIVATE_IP")
-	)
-
-	dsn := fmt.Sprintf("user=%s password=%s database=%s host=%s", dbUser, dbPwd, dbName, instanceConnectionName)
 	config, err := generateConfig(options)
-	//config.gcEnabled = false
-	url = dsn
 	if err != nil {
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
@@ -251,37 +193,6 @@ func newPostgresDatastore(
 			Str("phase", config.migrationPhase).
 			Msg("postgres configured to use intermediate migration phase")
 	}
-	//THESE ARE MY CHANGES I NEED I THINK?
-	// var opts []cloudsqlconn.Option
-	// d, err := cloudsqlconn.NewDialer(context.Background(), opts...)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// readPoolConfig, err := pgxpool.ParseConfig(url)
-	// if err != nil {
-	// 	return nil, fmt.Errorf(errUnableToInstantiate, err)
-	// }
-	// config.readPoolOpts.ConfigurePgx(readPoolConfig)
-	// readPoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-	// 	RegisterTypes(conn.TypeMap())
-	// 	return nil
-	// }
-
-	// writePoolConfig, err := pgxpool.ParseConfig(url)
-	// if err != nil {
-	// 	return nil, fmt.Errorf(errUnableToInstantiate, err)
-	// }
-	// config.writePoolOpts.ConfigurePgx(writePoolConfig)
-	// writePoolConfig.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
-	// 	RegisterTypes(conn.TypeMap())
-	// 	return nil
-	// }
-	// readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-	// 	return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
-	// }
-	// writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-	// 	return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
-	// }
 
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
@@ -295,7 +206,7 @@ func newPostgresDatastore(
 	if err != nil {
 		return nil, common.RedactAndLogSensitiveConnString(ctx, errUnableToInstantiate, err, pgURL)
 	}
-	//dbURI := stdlib.RegisterConnConfig(readPoolConfig.ConnConfig)
+
 	// Verify that the server supports commit timestamps
 	var trackTSOn string
 	if err := readPool.

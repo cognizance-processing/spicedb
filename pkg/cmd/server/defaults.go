@@ -38,21 +38,9 @@ import (
 	"spicedb/pkg/middleware/requestid"
 	"spicedb/pkg/middleware/serverversion"
 	"spicedb/pkg/releases"
+	"spicedb/pkg/runtime"
 
 	"github.com/authzed/authzed-go/pkg/requestmeta"
-
-	"spicedb/internal/dispatch"
-	"spicedb/internal/logging"
-	consistencymw "spicedb/internal/middleware/consistency"
-	datastoremw "spicedb/internal/middleware/datastore"
-	dispatchmw "spicedb/internal/middleware/dispatcher"
-	"spicedb/internal/middleware/servicespecific"
-	"spicedb/pkg/datastore"
-	logmw "spicedb/pkg/middleware/logging"
-	"spicedb/pkg/middleware/requestid"
-	"spicedb/pkg/middleware/serverversion"
-	"spicedb/pkg/releases"
-	"spicedb/pkg/runtime"
 )
 
 var DisableTelemetryHandler *prometheus.Registry

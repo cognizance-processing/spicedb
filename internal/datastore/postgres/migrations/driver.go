@@ -4,18 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/rs/zerolog/log"
-	"github.com/spf13/viper"
-	"os"
 	"spicedb/pkg/migrate"
-	"go.opentelemetry.io/otel"
-
-	log "spicedb/internal/logging"
 
 	pgxcommon "spicedb/internal/datastore/postgres/common"
+	log "spicedb/internal/logging"
 	"spicedb/pkg/datastore"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"go.opentelemetry.io/otel"
 )
 
 const postgresMissingTableErrorCode = "42P01"
@@ -29,9 +26,6 @@ var tracer = otel.Tracer("spicedb/internal/datastore/common")
 type AlembicPostgresDriver struct {
 	db *pgx.Conn
 }
-type Config struct {
-	ServerPort string
-	FontEndUrl string
 
 // NewAlembicPostgresDriver creates a new driver with active connections to the database specified.
 func NewAlembicPostgresDriver(ctx context.Context, url string, credentialsProvider datastore.CredentialsProvider) (*AlembicPostgresDriver, error) {
