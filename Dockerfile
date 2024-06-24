@@ -38,4 +38,4 @@ COPY --from=spicedb-builder /app/spicedb /app/spicedb
 #     rm -rf /var/lib/apt/lists/*
 ENV PATH="$PATH:/usr/local/bin"
 EXPOSE 50051
-ENTRYPOINT ["/app/spicedb", "serve", "--grpc-preshared-key", "b2601263774ff8e988057acfac2b6d769297dfdf19206fbefbf60a0b02e10569","--log-level=debug", "--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.44.110.10:5432/spicedb?sslmode=disable\""]
+ENTRYPOINT ["/app/spicedb", "migrate", "head","--datastore-engine=postgres", "--datastore-conn-uri=\"postgres://new:Happy456@34.44.110.10:5432/spicedb?sslmode=disable\""]
