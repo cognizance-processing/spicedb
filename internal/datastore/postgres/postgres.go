@@ -258,10 +258,10 @@ func newPostgresDatastore(
 			Msg("postgres configured to use intermediate migration phase")
 	}
 	readPoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
+		return d.Dial(ctx, "cog-analytics-backend:us-central1:cog-analytics-engine-postgres-qa")
 	}
 	writePoolConfig.ConnConfig.DialFunc = func(ctx context.Context, network, instance string) (net.Conn, error) {
-		return d.Dial(ctx, "cog-analytics-backend:us-central1:authz-store-latest")
+		return d.Dial(ctx, "cog-analytics-backend:us-central1:cog-analytics-engine-postgres-qa")
 	}
 	initializationContext, cancelInit := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelInit()
