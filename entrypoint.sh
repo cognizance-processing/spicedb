@@ -7,7 +7,6 @@ DBPASSWORD=${DBPASSWORD}
 DBIP=${DBIP}
 
 # Replace the placeholder in your command with the environment variable
-exec /app/spicedb serve \
-    --grpc-preshared-key "${PRESHAREDKEY}" \
+exec /app/spicedb migrate head \
     --datastore-engine=postgres \
     --datastore-conn-uri="postgres://${DBUSER}:${DBPASSWORD}@${DBIP}:5432/spicedb?sslmode=disable"
